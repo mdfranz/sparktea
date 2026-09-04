@@ -12,12 +12,15 @@ var pickerTitleStyle = lipgloss.NewStyle().
 	Background(lipgloss.Color("62")).
 	Foreground(lipgloss.Color("230"))
 
-// pickerModel is the startup screen: a scrollable list of models to run the
-// chat against.
+// pickerModel is a scrollable list of models to run the chat against. It's
+// used both for the initial startup pick and, when cancellable, for /model
+// switching mid-conversation (where esc/q backs out instead of quitting).
 type pickerModel struct {
-	list     list.Model
-	chosen   *modelOption
-	quitting bool
+	list        list.Model
+	chosen      *modelOption
+	quitting    bool
+	cancellable bool
+	cancelled   bool
 }
 
 func newPickerModel(options []modelOption) pickerModel {
@@ -34,6 +37,21 @@ func newPickerModel(options []modelOption) pickerModel {
 	return pickerModel{list: l}
 }
 
+// newModelSwitchPicker is the /model picker: same list, but esc/q return to
+// the chat instead of quitting, and current is pre-selected.
+func newModelSwitchPicker(options []modelOption, current modelOption) pickerModel {
+	p := newPickerModel(options)
+	p.cancellable = true
+	p.list.Title = "Switch model"
+	for i, item := range p.list.Items() {
+		if opt, ok := item.(modelOption); ok && opt == current {
+			p.list.Select(i)
+			break
+		}
+	}
+	return p
+}
+
 func (m pickerModel) Init() tea.Cmd { return nil }
 
 func (m pickerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -43,7 +61,14 @@ func (m pickerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case tea.KeyMsg:
 		switch msg.String() {
-		case "ctrl+c", "q":
+		case "ctrl+c":
+			m.quitting = true
+			return m, tea.Quit
+		case "q", "esc":
+			if m.cancellable {
+				m.cancelled = true
+				return m, nil
+			}
 			m.quitting = true
 			return m, tea.Quit
 		case "enter":

@@ -16,6 +16,7 @@ import (
 var (
 	userStyle      = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("39"))
 	assistantStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("42"))
+	systemStyle    = lipgloss.NewStyle().Italic(true).Faint(true)
 	errorStyle     = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("196"))
 	helpStyle      = lipgloss.NewStyle().Faint(true)
 	headerStyle    = lipgloss.NewStyle().Bold(true).Padding(0, 1).
@@ -24,9 +25,13 @@ var (
 
 // transcriptEntry is one rendered turn in the chat viewport.
 type transcriptEntry struct {
-	role string // "user" or "assistant"
+	role string // "user", "assistant", or "system"
 	text string
 }
+
+// requestModelSwitchMsg is sent up to appModel when the user types /model,
+// asking it to show the picker again without losing the chat underneath.
+type requestModelSwitchMsg struct{}
 
 // Messages fed from the background streaming goroutine into Update via a
 // per-turn channel; see waitForStream.
@@ -62,11 +67,16 @@ type chatModel struct {
 	ready         bool
 }
 
-func newChatModel(option modelOption, width, height int) (*chatModel, tea.Cmd) {
-	model := option.newModel()
-	agent := ai.NewAgent[struct{}, string](model,
+// newAgentFor builds the agent for a model option. Called both when a chat
+// starts and when /model switches models mid-conversation.
+func newAgentFor(option modelOption) *ai.Agent[struct{}, string] {
+	return ai.NewAgent[struct{}, string](option.newModel(),
 		ai.WithInstructions("Answer clearly and concisely."),
 	)
+}
+
+func newChatModel(option modelOption, width, height int) (*chatModel, tea.Cmd) {
+	agent := newAgentFor(option)
 	ctx, cancel := context.WithCancel(context.Background())
 
 	ti := textinput.New()
@@ -123,7 +133,12 @@ func (m *chatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "enter":
 			if !m.streaming {
 				prompt := strings.TrimSpace(m.input.Value())
-				if prompt != "" {
+				switch prompt {
+				case "":
+				case "/model":
+					m.input.Reset()
+					return m, func() tea.Msg { return requestModelSwitchMsg{} }
+				default:
 					m.transcript = append(m.transcript, transcriptEntry{role: "user", text: prompt})
 					m.input.Reset()
 					m.streaming = true
@@ -188,7 +203,7 @@ func (m *chatModel) View() string {
 	}
 	header := headerStyle.Render(fmt.Sprintf("openrouter-agent · %s", m.option.label))
 
-	status := helpStyle.Render("enter: send · esc/ctrl+c: quit")
+	status := helpStyle.Render("enter: send · /model: switch model · esc/ctrl+c: quit")
 	if m.streaming {
 		status = fmt.Sprintf("%s thinking…", m.spinner.View())
 	} else if m.err != nil {
@@ -231,11 +246,30 @@ func writeEntry(b *strings.Builder, role, text string) {
 	switch role {
 	case "user":
 		b.WriteString(userStyle.Render("You"))
+		b.WriteString("\n")
+		b.WriteString(text)
+	case "system":
+		b.WriteString(systemStyle.Render(text))
 	default:
 		b.WriteString(assistantStyle.Render("Assistant"))
+		b.WriteString("\n")
+		b.WriteString(text)
 	}
-	b.WriteString("\n")
-	b.WriteString(text)
+}
+
+// switchModel replaces the active model with option, keeping the transcript
+// and message history so the new model picks up the same conversation.
+func (m *chatModel) switchModel(option modelOption) {
+	if option == m.option {
+		return
+	}
+	m.option = option
+	m.agent = newAgentFor(option)
+	m.transcript = append(m.transcript, transcriptEntry{
+		role: "system",
+		text: fmt.Sprintf("— switched to %s —", option.label),
+	})
+	m.refreshViewport()
 }
 
 // waitForStream reads the next bubbletea message produced by the background
