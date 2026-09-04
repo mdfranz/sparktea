@@ -37,8 +37,8 @@ var modelCatalog = []modelOption{
 	{"Claude Sonnet 5", providerOpenRouter, "anthropic/claude-sonnet-5"},
 	{"GPT-5.1", providerOpenRouter, "openai/gpt-5.1"},
 	{"Llama 4 Maverick", providerOpenRouter, "meta-llama/llama-4-maverick"},
+	{"Gemini 3.8 Flash", providerGoogle, "gemini-3.8-flash"},
 	{"Gemini 2.5 Pro", providerGoogle, "gemini-2.5-pro"},
-	{"Gemini 2.5 Flash", providerGoogle, "gemini-2.5-flash"},
 	{"Gemini 2.0 Flash", providerGoogle, "gemini-2.0-flash"},
 }
 
