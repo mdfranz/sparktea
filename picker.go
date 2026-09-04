@@ -61,7 +61,7 @@ func (m pickerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case tea.KeyMsg:
 		switch msg.String() {
-		case "ctrl+c":
+		case "ctrl+c", "ctrl+d":
 			m.quitting = true
 			return m, tea.Quit
 		case "q", "esc":

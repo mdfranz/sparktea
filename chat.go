@@ -125,6 +125,13 @@ func (m *chatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "ctrl+c":
 			m.cancel()
 			return m, tea.Quit
+		case "ctrl+d":
+			// Mirrors shell/REPL convention: quit on an empty line, otherwise
+			// let textinput's own ctrl+d binding (delete-forward) apply below.
+			if m.input.Value() == "" {
+				m.cancel()
+				return m, tea.Quit
+			}
 		case "esc":
 			if !m.streaming {
 				m.cancel()
@@ -203,7 +210,7 @@ func (m *chatModel) View() string {
 	}
 	header := headerStyle.Render(fmt.Sprintf("openrouter-agent · %s", m.option.label))
 
-	status := helpStyle.Render("enter: send · /model: switch model · esc/ctrl+c: quit")
+	status := helpStyle.Render("enter: send · /model: switch model · esc/ctrl+c/ctrl+d: quit")
 	if m.streaming {
 		status = fmt.Sprintf("%s thinking…", m.spinner.View())
 	} else if m.err != nil {
