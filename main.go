@@ -1,27 +1,26 @@
-// Command openrouter-agent runs a minimal agent through OpenRouter.
+// Command openrouter-agent is a bubbletea chat TUI over pydantic-ai-go,
+// supporting multiple model providers (OpenRouter, Google Gemini). Pick a
+// model at startup, then chat; responses stream in as they're generated.
 package main
 
 import (
-	"context"
 	"fmt"
-	"log"
+	"os"
 
-	ai "github.com/Kludex/pydantic-ai-go/ai"
-	"github.com/Kludex/pydantic-ai-go/ai/models/openrouter"
+	tea "github.com/charmbracelet/bubbletea"
 )
 
 func main() {
-	// "~" is OpenRouter's alias syntax: this always redirects to the newest
-	// snapshot in the DeepSeek V4 Flash family. The API key is read from
-	// OPENROUTER_API_KEY unless overridden with openrouter.WithAPIKey.
-	model := openrouter.NewModel("~deepseek/deepseek-v4-flash-latest")
-	agent := ai.NewAgent[struct{}, string](model,
-		ai.WithInstructions("Answer in one short sentence."),
-	)
-
-	result, err := agent.Run(context.Background(), "Why is the sky blue?", struct{}{})
-	if err != nil {
-		log.Fatal(err)
+	options := availableModels()
+	if len(options) == 0 {
+		fmt.Fprintln(os.Stderr, "openrouter-agent: no API keys found.")
+		fmt.Fprintln(os.Stderr, "Set OPENROUTER_API_KEY for OpenRouter models and/or GEMINI_API_KEY (or GOOGLE_API_KEY) for Gemini models.")
+		os.Exit(1)
 	}
-	fmt.Println(result.Output)
+
+	p := tea.NewProgram(newAppModel(options), tea.WithAltScreen())
+	if _, err := p.Run(); err != nil {
+		fmt.Fprintln(os.Stderr, "openrouter-agent:", err)
+		os.Exit(1)
+	}
 }
