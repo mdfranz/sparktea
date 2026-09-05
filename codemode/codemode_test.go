@@ -3,29 +3,64 @@ package codemode
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"testing"
 	"time"
 
+	"github.com/Kludex/pydantic-ai-go/ai"
 	monty "github.com/ewhauser/gomonty"
 )
 
-// run is a small helper mirroring handleRunCode's args-decoding shape,
-// against a fresh CodeMode with the given limits (defaultLimits() if nil).
-func run(t *testing.T, code string, limits *monty.ResourceLimits) any {
-	t.Helper()
+// runRaw runs code through a fresh CodeMode with the given limits
+// (defaultLimits() if nil) and returns handleRunCode's raw (result, error) —
+// no test assertions, so it's safe to call from a non-test goroutine (see
+// TestRunCodeExceedsMaxDuration; a *testing.T's Fatal family must only be
+// called from the goroutine running the test).
+func runRaw(code string, limits *monty.ResourceLimits) (any, error) {
 	c := New()
 	if limits != nil {
 		c.limits = limits
 	}
 	args, err := json.Marshal(map[string]string{"code": code})
 	if err != nil {
-		t.Fatalf("marshal args: %v", err)
+		return nil, err
 	}
-	result, err := c.handleRunCode(context.Background(), args)
+	return c.handleRunCode(context.Background(), args)
+}
+
+// run asserts code succeeds and returns its result.
+func run(t *testing.T, code string, limits *monty.ResourceLimits) any {
+	t.Helper()
+	result, err := runRaw(code, limits)
 	if err != nil {
-		t.Fatalf("handleRunCode returned a Go error (want tool content, even for a bad script): %v", err)
+		t.Fatalf("handleRunCode returned an error for a script expected to succeed: %v", err)
 	}
 	return result
+}
+
+// runExpectingRetry asserts code fails the way handleRunCode reports a bad
+// script: a nil result and an *ai.RetryError (not ordinary tool content, and
+// not some other Go error) — see codemode.go's handleRunCode and
+// runCodeMaxRetries. Returns the retry message.
+func runExpectingRetry(t *testing.T, code string, limits *monty.ResourceLimits) string {
+	t.Helper()
+	result, err := runRaw(code, limits)
+	return checkRetry(t, result, err)
+}
+
+func checkRetry(t *testing.T, result any, err error) string {
+	t.Helper()
+	if result != nil {
+		t.Fatalf("got non-nil result %#v alongside an error", result)
+	}
+	var retry *ai.RetryError
+	if !errors.As(err, &retry) {
+		t.Fatalf("got err %v (%T), want an *ai.RetryError", err, err)
+	}
+	if retry.Message == "" {
+		t.Fatalf("got an empty RetryError message")
+	}
+	return retry.Message
 }
 
 func TestRunCodeExpressionResult(t *testing.T) {
@@ -88,19 +123,11 @@ func TestRunCodeOutputAndResult(t *testing.T) {
 }
 
 func TestRunCodeSyntaxError(t *testing.T) {
-	got := run(t, "def broken(:", nil)
-	m, ok := got.(map[string]any)
-	if !ok || m["error"] == nil || m["error"] == "" {
-		t.Fatalf("got %#v, want a non-empty {\"error\": ...} map, not a panic or Go error", got)
-	}
+	runExpectingRetry(t, "def broken(:", nil)
 }
 
 func TestRunCodeDisallowedImport(t *testing.T) {
-	got := run(t, "import requests", nil)
-	m, ok := got.(map[string]any)
-	if !ok || m["error"] == nil || m["error"] == "" {
-		t.Fatalf("got %#v, want a non-empty {\"error\": ...} map for a disallowed import", got)
-	}
+	runExpectingRetry(t, "import requests", nil)
 }
 
 func TestRunCodeExceedsMaxDuration(t *testing.T) {
@@ -109,14 +136,18 @@ func TestRunCodeExceedsMaxDuration(t *testing.T) {
 		MaxMemory:         64 << 20,
 		MaxRecursionDepth: 1000,
 	}
-	done := make(chan any, 1)
-	go func() { done <- run(t, "while True:\n    pass", limits) }()
+	type outcome struct {
+		result any
+		err    error
+	}
+	done := make(chan outcome, 1)
+	go func() {
+		result, err := runRaw("while True:\n    pass", limits)
+		done <- outcome{result, err}
+	}()
 	select {
-	case got := <-done:
-		m, ok := got.(map[string]any)
-		if !ok || m["error"] == nil {
-			t.Fatalf("got %#v, want a non-empty {\"error\": ...} map", got)
-		}
+	case o := <-done:
+		checkRetry(t, o.result, o.err)
 	case <-time.After(5 * time.Second):
 		t.Fatal("run() did not return within 5s of a 50ms MaxDuration limit — the run is hanging")
 	}
@@ -128,11 +159,7 @@ func TestRunCodeExceedsMaxMemory(t *testing.T) {
 		MaxMemory:         1 << 20, // 1 MiB
 		MaxRecursionDepth: 1000,
 	}
-	got := run(t, "[0] * 100_000_000", limits)
-	m, ok := got.(map[string]any)
-	if !ok || m["error"] == nil {
-		t.Fatalf("got %#v, want a non-empty {\"error\": ...} map", got)
-	}
+	runExpectingRetry(t, "[0] * 100_000_000", limits)
 }
 
 // TestRunCodeDefaultFlattenFallback exercises flattenValue's default branch:

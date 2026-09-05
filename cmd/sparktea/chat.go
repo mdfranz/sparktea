@@ -483,7 +483,7 @@ func (m *chatModel) startStream(prompt string) tea.Cmd {
 				case ai.NativeToolCallPart:
 					ch <- streamNoteMsg("🔎 " + part.ToolName)
 				case ai.ToolCallPart:
-					if part.ToolName == "run_code" {
+					if part.ToolName == codemode.ToolName {
 						ch <- streamNoteMsg("🐍 " + part.ToolName)
 					}
 				}

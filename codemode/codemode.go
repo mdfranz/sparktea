@@ -15,6 +15,22 @@ import (
 	monty "github.com/ewhauser/gomonty"
 )
 
+// ToolName is run_code's model-facing tool name, exported so callers (e.g.
+// cmd/sparktea/chat.go's stream-event handler) can match on it without
+// duplicating the literal.
+const ToolName = "run_code"
+
+// runCodeMaxRetries overrides pydantic-ai-go's tool-wide default retry
+// budget (1, cumulative for the whole run — see WithToolMaxRetries — never
+// reset by a later success). A run_code failure is routine (a script's own
+// bug), not the model misunderstanding the tool's schema, so the default is
+// far too tight for legitimate iterative debugging. This is generous enough
+// not to get in the way of that, while still bounding a model that's
+// genuinely stuck in a broken-code loop: past this many cumulative
+// failures, pydantic-ai-go hard-fails the run with ErrMaxRetriesExceeded
+// instead of feeding the error back forever.
+const runCodeMaxRetries = 20
+
 // defaultLimits are conservative enough that a runaway script can't stall
 // the TUI. MaxSuspensions is a backstop against a script looping on host
 // calls; it doesn't otherwise matter in the MVP since RunOptions.Functions
@@ -59,8 +75,8 @@ func (c *CodeMode) Setup(reg *ai.CapabilityRegistry) error {
 }
 
 func runCodeDefinition() ai.ToolDefinition {
-	return ai.ToolDefinition{
-		Name: "run_code",
+	def := ai.ToolDefinition{
+		Name: ToolName,
 		Description: "Run Python in a sandboxed interpreter (no filesystem, network, " +
 			"or environment access) and get back the result. Write plain Python — " +
 			"the value of the last expression is returned automatically, no need to " +
@@ -80,6 +96,8 @@ func runCodeDefinition() ai.ToolDefinition {
 			"additionalProperties": false,
 		},
 	}
+	ai.WithToolMaxRetries(runCodeMaxRetries)(&def)
+	return def
 }
 
 func (c *CodeMode) handleRunCode(ctx context.Context, rawArgs json.RawMessage) (any, error) {
@@ -92,9 +110,13 @@ func (c *CodeMode) handleRunCode(ctx context.Context, rawArgs json.RawMessage) (
 
 	runner, err := monty.New(args.Code, monty.CompileOptions{ScriptName: "run_code.py"})
 	if err != nil {
-		// Syntax error: feed it back to the model as tool content so it can
-		// retry with corrected code, rather than hard-failing the run.
-		return formatMontyError(err), nil
+		// Syntax error: report it as an ai.RetryError rather than a plain Go
+		// error. pydantic-ai-go converts that into a retry prompt fed back
+		// to the model — same "let it see the mistake and retry" intent as
+		// this package's own tool content, but through the framework's own
+		// mechanism, so runCodeMaxRetries actually bounds it instead of the
+		// model being able to retry unboundedly.
+		return nil, ai.Retryf("%s", err.Error())
 	}
 
 	var stdout strings.Builder
@@ -105,16 +127,9 @@ func (c *CodeMode) handleRunCode(ctx context.Context, rawArgs json.RawMessage) (
 	if err != nil {
 		// Runtime error (including a resource-limit violation) or a typing
 		// error: same treatment as a syntax error above.
-		return formatMontyError(err), nil
+		return nil, ai.Retryf("%s", err.Error())
 	}
 	return composeResult(stdout.String(), value), nil
-}
-
-// formatMontyError turns one of gomonty's typed errors (*monty.SyntaxError,
-// *monty.RuntimeError, *monty.TypingError) into tool content the model can
-// read and react to.
-func formatMontyError(err error) map[string]any {
-	return map[string]any{"error": err.Error()}
 }
 
 // composeResult mirrors upstream Code Mode's result semantics.

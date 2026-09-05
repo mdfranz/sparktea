@@ -22,16 +22,28 @@ func flattenValue(v monty.Value) any {
 		// Already a plain Go (or JSON-marshalable) type for these kinds.
 		return v.Raw()
 	case "list":
-		items, _ := v.Raw().([]monty.Value)
+		items, ok := v.Raw().([]monty.Value)
+		if !ok {
+			return v.String()
+		}
 		return flattenItems(items)
 	case "tuple":
-		items, _ := v.Raw().(monty.Tuple)
+		items, ok := v.Raw().(monty.Tuple)
+		if !ok {
+			return v.String()
+		}
 		return flattenItems(items)
 	case "set":
-		items, _ := v.Raw().(monty.Set)
+		items, ok := v.Raw().(monty.Set)
+		if !ok {
+			return v.String()
+		}
 		return flattenItems(items)
 	case "frozen_set":
-		items, _ := v.Raw().(monty.FrozenSet)
+		items, ok := v.Raw().(monty.FrozenSet)
+		if !ok {
+			return v.String()
+		}
 		return flattenItems(items)
 	case "dict":
 		return flattenDict(v)
