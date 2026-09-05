@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -160,6 +161,63 @@ func TestRunCodeExceedsMaxMemory(t *testing.T) {
 		MaxRecursionDepth: 1000,
 	}
 	runExpectingRetry(t, "[0] * 100_000_000", limits)
+}
+
+// TestRunCodeUnsupportedStdlibModules is a drift canary for runCodeDefinition's
+// description, which names these as NOT available (see codemode.go) based on
+// empirical testing against this package's pinned Monty commit, not just
+// Monty's public limitations doc (which turned out stale in one respect —
+// see TestRunCodeFormatMethodWorks). If a future pin bump starts supporting
+// one of these, this test fails, flagging the description as stale instead
+// of letting the guidance silently rot.
+func TestRunCodeUnsupportedStdlibModules(t *testing.T) {
+	for _, mod := range []string{"statistics", "random", "time", "enum"} {
+		t.Run(mod, func(t *testing.T) {
+			runExpectingRetry(t, "import "+mod, nil)
+		})
+	}
+}
+
+// TestRunCodeSupportedStdlibModules locks in that these modules — named as
+// available in runCodeDefinition's description but absent from the original
+// implementation's narrower list — actually work.
+func TestRunCodeSupportedStdlibModules(t *testing.T) {
+	for name, code := range map[string]string{
+		"collections": "import collections\ncollections.Counter([1, 1, 2])",
+		"itertools":   "import itertools\nlist(itertools.islice(itertools.count(), 3))",
+		"functools":   "import functools\nfunctools.reduce(lambda a, b: a + b, [1, 2, 3])",
+	} {
+		t.Run(name, func(t *testing.T) {
+			run(t, code, nil)
+		})
+	}
+}
+
+// TestRunCodeOSCallsFailCleanly confirms a real OS-touching call (the
+// sandbox has no filesystem/env, and this package wires no OS handler)
+// reports a normal, immediate error rather than hanging until MaxDuration —
+// the description promises NotImplementedError, not a stall.
+func TestRunCodeOSCallsFailCleanly(t *testing.T) {
+	limits := &monty.ResourceLimits{MaxDuration: 2 * time.Second, MaxMemory: 64 << 20, MaxRecursionDepth: 100}
+	msg := runExpectingRetry(t, "import os\nos.getenv(\"HOME\")", limits)
+	if !strings.Contains(msg, "NotImplementedError") {
+		t.Fatalf("got retry message %q, want it to mention NotImplementedError", msg)
+	}
+}
+
+// TestRunCodePercentFormattingFails and TestRunCodeFormatMethodWorks pin
+// down the one place this package's description diverges from Monty's own
+// published limitations doc: as of this pin, .format() already works even
+// though the doc says it doesn't. '%' formatting still fails as documented.
+func TestRunCodePercentFormattingFails(t *testing.T) {
+	runExpectingRetry(t, `"%.2f" % 3.14159`, nil)
+}
+
+func TestRunCodeFormatMethodWorks(t *testing.T) {
+	got := run(t, `"{:.2f}".format(3.14159)`, nil)
+	if got != "3.14" {
+		t.Fatalf("got %#v, want \"3.14\"", got)
+	}
 }
 
 // TestRunCodeDefaultFlattenFallback exercises flattenValue's default branch:

@@ -77,13 +77,26 @@ func (c *CodeMode) Setup(reg *ai.CapabilityRegistry) error {
 func runCodeDefinition() ai.ToolDefinition {
 	def := ai.ToolDefinition{
 		Name: ToolName,
-		Description: "Run Python in a sandboxed interpreter (no filesystem, network, " +
-			"or environment access) and get back the result. Write plain Python — " +
-			"the value of the last expression is returned automatically, no need to " +
-			"print() it. Only a small stdlib subset is available: sys, typing, math, " +
-			"json, re, unicodedata, datetime, pathlib. Third-party imports are " +
-			"rejected. Use this for calculations, loops, or data wrangling that's " +
-			"easier to write as code than to reason through step by step.",
+		Description: "Run Python in a sandboxed interpreter (Monty, not CPython) and get " +
+			"back the result. The last expression's value returns automatically — no " +
+			"need to print() it.\n\n" +
+			"No filesystem, network, or environment access. os and pathlib import fine, " +
+			"but any real OS call (os.getenv, Path.exists, file I/O, ...) raises " +
+			"NotImplementedError — there's nothing to touch.\n\n" +
+			"Only part of the stdlib exists, each module covering a slice of CPython's " +
+			"surface: sys, typing, math, json, re, unicodedata, datetime, pathlib, os, " +
+			"collections, itertools, functools, dataclasses, asyncio, base64, binascii. " +
+			"No third-party imports. Notably NOT available: statistics, random, time, " +
+			"enum, copy, string, io, struct, hashlib, uuid, and anything " +
+			"network/process/thread-related (urllib, socket, subprocess, threading) — " +
+			"compute statistics and pick values with plain arithmetic/math instead of " +
+			"importing statistics/random.\n\n" +
+			"Also unsupported: class inheritance, @classmethod/@staticmethod/@property, " +
+			"user-defined exception classes, eval/exec, yield. '%'-style string " +
+			"formatting fails — use an f-string or .format() instead.\n\n" +
+			"A bad script's error comes back as a message, not a hard failure — read it, " +
+			"fix the code, and call run_code again. Good for calculations, loops, or data " +
+			"wrangling that's easier to write than to reason through step by step.",
 		Schema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{

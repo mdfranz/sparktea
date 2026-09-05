@@ -148,17 +148,35 @@ interpreter written in Rust, via its Go bindings,
 subprocess, a few milliseconds to start.
 
 Sandboxing guarantees:
-- No filesystem, network, or environment access.
-- Only a small stdlib subset is importable: `sys`, `typing`, `math`, `json`,
-  `re`, `unicodedata`, `datetime`, `pathlib`. Anything else (e.g. `import
-  requests`) is rejected.
+- No filesystem, network, or environment access. `os` and `pathlib` import
+  fine, but any real OS call (`os.getenv`, `Path.exists`, file I/O, ...)
+  raises `NotImplementedError` — there's nothing to touch.
+- Only part of the stdlib exists, each module covering a slice of CPython's
+  surface: `sys`, `typing`, `math`, `json`, `re`, `unicodedata`, `datetime`,
+  `pathlib`, `os`, `collections`, `itertools`, `functools`, `dataclasses`,
+  `asyncio`, `base64`, `binascii`. No third-party imports. Notably **not**
+  available: `statistics`, `random`, `time`, `enum`, `copy`, `string`, `io`,
+  `struct`, `hashlib`, `uuid`, and anything network/process/thread-related
+  (`urllib`, `socket`, `subprocess`, `threading`).
+- Also unsupported: class inheritance, `@classmethod`/`@staticmethod`/
+  `@property`, user-defined exception classes, `eval`/`exec`, `yield`.
+  `%`-style string formatting (`"%.2f" % x`) fails — f-strings and
+  `.format()` both work.
 - Each run is capped at 5 seconds wall-clock, 64 MiB memory, and 100 stack
   frames of recursion, so a runaway script can't stall the TUI.
 
+(`codemode/codemode_test.go` pins the module/formatting behavior above down
+as regression tests against the exact pinned Monty commit, rather than
+trusting [Monty's own limitations doc](https://pydantic.dev/docs/monty/limitations/)
+blindly — that page and this pin already disagree on one point: `.format()`
+works here even though the doc says it doesn't.)
+
 The last expression's value comes back automatically (no `print()` needed);
 `print()` output is captured too. A syntax error, a runtime exception, or a
-resource-limit violation is returned to the model as tool content — not a
-hard failure — so it can see what went wrong and retry with corrected code.
+resource-limit violation comes back to the model as a bounded retry prompt
+(`*ai.RetryError`, capped at 20 cumulative failures for the run) rather than
+a hard failure, so it can see what went wrong and retry with corrected
+code — without a broken-code loop running forever.
 
 **Current limitation**: the sandbox is self-contained — the model can't yet
 call sparktea's own tools (e.g. web search) as functions from inside a
