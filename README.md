@@ -85,6 +85,7 @@ Type these instead of a message:
 | `/usage` | Show session totals: requests, input/output tokens, tool calls, cost. |
 | `/clear` | Discard history and usage totals; start fresh without restarting. |
 | `/search` (or `/search on`/`off`) | Toggle native web search grounding (`ai.WebSearchTool`) for models that support it. OpenRouter, Gemini, and Anthropic models pick it up (or silently skip it if the underlying model doesn't do web search); Mistral's adapter doesn't implement pydantic-ai-go's native-tool interface at all, so sparktea leaves the tool out of the request entirely rather than send something the transport would reject — `/search on` on a Mistral model just notes that it's a no-op. |
+| `/code` (or `/code on`/`off`) | Toggle Code Mode: gives the model a `run_code` tool that executes Python in a sandbox. Off by default. See "Code Mode" below. |
 | `/save [name]` | Write the conversation to `~/.sparktea/sessions/<name>.json` (default name `default`). |
 | `/load [name]` | Restore a saved conversation, replaying its transcript and history. |
 
@@ -112,6 +113,39 @@ you trust the destination project with conversation content.
 
 Without `LOGFIRE_TOKEN` set, none of this runs — no OTel providers are
 installed and agents behave exactly as before.
+
+## Code Mode
+
+`/code` (default off) gives the model a single `run_code` tool: it writes
+Python, sparktea runs it, the model gets the result back. This is
+[**Monty**](https://github.com/pydantic/monty), a sandboxed Python
+interpreter written in Rust, via its Go bindings,
+[**gomonty**](https://github.com/ewhauser/gomonty) — no Docker, no
+subprocess, a few milliseconds to start.
+
+Sandboxing guarantees:
+- No filesystem, network, or environment access.
+- Only a small stdlib subset is importable: `sys`, `typing`, `math`, `json`,
+  `re`, `unicodedata`, `datetime`, `pathlib`. Anything else (e.g. `import
+  requests`) is rejected.
+- Each run is capped at 5 seconds wall-clock, 64 MiB memory, and 100 stack
+  frames of recursion, so a runaway script can't stall the TUI.
+
+The last expression's value comes back automatically (no `print()` needed);
+`print()` output is captured too. A syntax error, a runtime exception, or a
+resource-limit violation is returned to the model as tool content — not a
+hard failure — so it can see what went wrong and retry with corrected code.
+
+**Current limitation**: the sandbox is self-contained — the model can't yet
+call sparktea's own tools (e.g. web search) as functions from inside a
+script. That's a natural next step once sparktea has more tools worth
+composing; it needs no rework of the current implementation.
+
+sparktea depends on a personal fork of gomonty
+(`github.com/mdfranz/gomonty`), pinned via a `go.mod` `replace` directive,
+to carry Monty-version-refresh work ahead of upstream releasing it — see
+`MONTY-PLAN.md` for the details and the risk that comes with it (native
+libraries are currently only rebuilt/verified for macOS arm64).
 
 ## Adding models
 
