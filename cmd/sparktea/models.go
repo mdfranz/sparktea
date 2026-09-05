@@ -99,7 +99,12 @@ func (m modelOption) newModel() ai.Model {
 	case providerMistral:
 		return mistral.NewModel(m.modelID)
 	case providerOpenAI:
-		return openai.NewModel(m.modelID)
+		// Responses, not Chat Completions: native web search only works on
+		// Chat models whose name contains "-search-preview" (none of ours
+		// do), while Responses grants it unconditionally for every model —
+		// see pydantic-ai-go's docs/native-tools.md. Responses is also what
+		// upstream's own docs use for the gpt-5.6 family specifically.
+		return openai.NewResponsesModel(m.modelID)
 	default:
 		panic("sparktea: unknown provider " + string(m.provider))
 	}
