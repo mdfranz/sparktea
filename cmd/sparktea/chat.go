@@ -24,21 +24,75 @@ const (
 	maxInputHeight = 6
 )
 
+// activityMinWidth is the terminal width below which the activity panel
+// (thinking + tool-call notes, see chatModel.showActivity) auto-hides in
+// favor of today's single-column inline layout — a side panel this narrow
+// would cramp both columns. activityMinPanelWidth/activityMaxPanelWidth
+// bound how much of the remaining width it takes when shown.
+const (
+	activityMinWidth      = 100
+	activityMinPanelWidth = 28
+	activityMaxPanelWidth = 44
+)
+
 var (
 	userStyle      = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("39"))
 	assistantStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("42"))
 	systemStyle    = lipgloss.NewStyle().Italic(true).Faint(true)
 	thinkingStyle  = lipgloss.NewStyle().Italic(true).Faint(true).Foreground(lipgloss.Color("141"))
+	toolStyle      = lipgloss.NewStyle().Faint(true).Foreground(lipgloss.Color("75"))
 	errorStyle     = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("196"))
 	helpStyle      = lipgloss.NewStyle().Faint(true)
 	headerStyle    = lipgloss.NewStyle().Bold(true).Padding(0, 1).
 			Background(lipgloss.Color("62")).Foreground(lipgloss.Color("230"))
 )
 
-// transcriptEntry is one turn in the chat viewport.
+// transcriptEntry is one entry in either the main transcript or the
+// activity panel — thinking and tool-call notes use the same shape as
+// user/assistant turns, just rendered and stored separately (see
+// chatModel.activityEntries).
 type transcriptEntry struct {
-	role string // "user", "assistant", "thinking", or "system"
+	role string // "user", "assistant", "system", "thinking", or "tool"
 	text string
+}
+
+// clampActivityWidth picks the activity panel's column width as a fraction
+// of the terminal, bounded so it's never so narrow tool/thinking text is
+// unreadable nor so wide it crowds out the main transcript. Computed even
+// when the panel is hidden, so its cached content stays wrapped correctly
+// for whenever it's shown again (see chatModel.showActivity).
+func clampActivityWidth(width int) int {
+	w := width / 3
+	if w < activityMinPanelWidth {
+		w = activityMinPanelWidth
+	}
+	if w > activityMaxPanelWidth {
+		w = activityMaxPanelWidth
+	}
+	return w
+}
+
+// dividerColumn renders a single-column vertical rule height rows tall,
+// separating the main transcript from the activity panel.
+func dividerColumn(height int) string {
+	line := helpStyle.Render("│")
+	lines := make([]string, height)
+	for i := range lines {
+		lines[i] = line
+	}
+	return strings.Join(lines, "\n")
+}
+
+// renderActivityEntry renders one activity-panel entry (thinking or a
+// tool-call note), word-wrapped to width. Unlike the main transcript, where
+// only assistant answers wrap (via glamour) and every other role relies on
+// the terminal's own width, the activity panel is narrow enough that
+// unwrapped text would just run off its edge.
+func renderActivityEntry(role, text string, width int) string {
+	if width > 0 {
+		text = lipgloss.NewStyle().Width(width).Render(text)
+	}
+	return renderPlainEntry(role, text)
 }
 
 // glamourStyle is fixed rather than auto-detected: glamour's auto-style
@@ -106,6 +160,22 @@ type chatModel struct {
 	current         strings.Builder
 	currentThinking strings.Builder
 
+	// activityViewport is a second scrolling panel for thinking and
+	// tool-call notes, kept out of the main transcript so it stays focused
+	// on the conversation itself. It mirrors historyRendered/transcript's
+	// cache-and-rebuild pattern. activityEnabled is the user's /activity
+	// toggle; showActivity (recomputed in setSize) is what's actually
+	// displayed — activityEnabled AND wide enough (activityMinWidth). When
+	// showActivity is false, thinking/tool notes fall back to the main
+	// transcript instead, same as before this panel existed — see the
+	// streamThinkingDeltaMsg/streamNoteMsg cases in Update and
+	// flushCurrentTurn.
+	activityViewport viewport.Model
+	activityEntries  []transcriptEntry
+	activityRendered string
+	activityEnabled  bool
+	showActivity     bool
+
 	sessionUsage  ai.Usage
 	searchEnabled bool
 
@@ -157,6 +227,8 @@ func newChatModel(option modelOption, width, height int) (*chatModel, tea.Cmd) {
 		cancel:             cancel,
 		input:              ta,
 		viewport:           viewport.New(width, max(height-5, 1)),
+		activityViewport:   viewport.New(activityMinPanelWidth, max(height-5, 1)),
+		activityEnabled:    true,
 		spinner:            sp,
 		codeModeCapability: codemode.New(),
 	}
@@ -175,17 +247,33 @@ func (m *chatModel) setSize(width, height int) {
 	inputHeight := clampInputHeight(m.input.LineCount())
 	m.input.SetHeight(inputHeight)
 
-	if m.md == nil || m.mdWidth != width {
-		m.md = newMarkdownRenderer(width)
-		m.mdWidth = width
+	// header (1) + blank (1) + input (inputHeight) + blank (1) + help (1)
+	bodyHeight := max(height-4-inputHeight, 1)
+
+	// activityWidth is computed even when the panel is hidden, so its
+	// cached content (activityRendered) stays wrapped correctly for
+	// whenever /activity or a resize shows it again.
+	activityWidth := clampActivityWidth(width)
+	m.showActivity = m.activityEnabled && width >= activityMinWidth
+	mainWidth := width
+	if m.showActivity {
+		mainWidth = width - activityWidth - 1 // 1 col for the divider between panels
 	}
 
-	// header (1) + blank (1) + input (inputHeight) + blank (1) + help (1)
-	m.viewport.Width = width
-	m.viewport.Height = max(height-4-inputHeight, 1)
+	if m.md == nil || m.mdWidth != mainWidth {
+		m.md = newMarkdownRenderer(mainWidth)
+		m.mdWidth = mainWidth
+	}
+
+	m.viewport.Width = mainWidth
+	m.viewport.Height = bodyHeight
+	m.activityViewport.Width = activityWidth
+	m.activityViewport.Height = bodyHeight
 	m.ready = true
 	m.rebuildHistory()
+	m.rebuildActivity()
 	m.refreshViewport()
+	m.refreshActivityViewport()
 }
 
 func clampInputHeight(lines int) int {
@@ -259,12 +347,25 @@ func (m *chatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case streamThinkingDeltaMsg:
 		m.currentThinking.WriteString(string(msg))
-		m.refreshViewport()
+		if m.showActivity {
+			m.refreshActivityViewport()
+		} else {
+			m.refreshViewport()
+		}
 		return m, waitForStream(m.streamCh)
 
 	case streamNoteMsg:
-		m.appendEntry("system", string(msg))
-		m.refreshViewport()
+		// Native (web search) and Code Mode (run_code) tool-call notes go
+		// to the activity panel when it's shown, same as thinking — see
+		// chatModel.showActivity — and fall back to the main transcript
+		// (today's pre-activity-panel behavior) otherwise.
+		if m.showActivity {
+			m.appendActivityEntry("tool", string(msg))
+			m.refreshActivityViewport()
+		} else {
+			m.appendEntry("system", string(msg))
+			m.refreshViewport()
+		}
 		return m, waitForStream(m.streamCh)
 
 	case streamDoneMsg:
@@ -364,12 +465,15 @@ func (m *chatModel) View() string {
 	}
 	header := headerStyle.Render(title)
 
-	status := helpStyle.Render("enter: send · ctrl+j: newline · /model /usage /clear /search /code /save /load · esc/ctrl+c/ctrl+d: quit")
+	status := helpStyle.Render("enter: send · ctrl+j: newline · /model /usage /clear /search /code /activity /save /load · esc/ctrl+c/ctrl+d: quit")
 	if m.searchEnabled && m.option.supportsNativeWebSearch() {
 		status = helpStyle.Render("🔎 web search on · ") + status
 	}
 	if m.codeEnabled {
 		status = helpStyle.Render("🐍 code mode on · ") + status
+	}
+	if m.activityEnabled && !m.showActivity {
+		status = helpStyle.Render(fmt.Sprintf("🧠 widen to %d cols for the activity panel · ", activityMinWidth)) + status
 	}
 	if m.streaming {
 		status = fmt.Sprintf("%s thinking…", m.spinner.View())
@@ -377,9 +481,15 @@ func (m *chatModel) View() string {
 		status = errorStyle.Render("error: " + m.err.Error())
 	}
 
+	body := m.viewport.View()
+	if m.showActivity {
+		body = lipgloss.JoinHorizontal(lipgloss.Top,
+			m.viewport.View(), dividerColumn(m.viewport.Height), m.activityViewport.View())
+	}
+
 	return lipgloss.JoinVertical(lipgloss.Left,
 		header,
-		m.viewport.View(),
+		body,
 		m.input.View(),
 		status,
 	)
@@ -388,13 +498,19 @@ func (m *chatModel) View() string {
 // refreshViewport renders the viewport from the cached, already-rendered
 // history plus any in-progress assistant response, and scrolls to the
 // bottom. It does not re-render finalized entries — see appendEntry.
+//
+// The live thinking preview only appears here when the activity panel isn't
+// shown (see refreshActivityViewport for the other case) — showActivity can
+// change (a resize, /activity) between one delta and the next, but each
+// refresh only ever reads its current value, so the two never show the
+// preview at once or drop it entirely.
 func (m *chatModel) refreshViewport() {
 	b := m.historyRendered
 	if m.streaming {
 		if b != "" {
 			b += "\n\n"
 		}
-		if m.currentThinking.Len() > 0 {
+		if !m.showActivity && m.currentThinking.Len() > 0 {
 			b += renderPlainEntry("thinking", m.currentThinking.String())
 			b += "\n\n"
 		}
@@ -412,11 +528,63 @@ func (m *chatModel) refreshViewport() {
 	m.viewport.GotoBottom()
 }
 
+// refreshActivityViewport is refreshViewport's counterpart for the activity
+// panel: cached finalized entries (activityRendered) plus, mid-stream, a
+// live preview of the thinking currently accumulating. Only reachable
+// content while m.showActivity is true, but the underlying data
+// (activityRendered, currentThinking) is tracked either way, so nothing's
+// lost if the panel is hidden and shown again later.
+func (m *chatModel) refreshActivityViewport() {
+	b := m.activityRendered
+	if m.streaming && m.currentThinking.Len() > 0 {
+		if b != "" {
+			b += "\n\n"
+		}
+		b += renderActivityEntry("thinking", m.currentThinking.String(), m.activityViewport.Width)
+	}
+	if b == "" {
+		b = helpStyle.Render("Thinking and tool calls will appear here.")
+	}
+	m.activityViewport.SetContent(b)
+	m.activityViewport.GotoBottom()
+}
+
+// appendActivityEntry adds a finalized entry to the activity panel
+// (thinking or a tool-call note) and renders it once, appending to
+// activityRendered rather than re-rendering the whole panel — mirrors
+// appendEntry's approach for the main transcript.
+func (m *chatModel) appendActivityEntry(role, text string) {
+	e := transcriptEntry{role: role, text: text}
+	m.activityEntries = append(m.activityEntries, e)
+	if m.activityRendered != "" {
+		m.activityRendered += "\n\n"
+	}
+	m.activityRendered += renderActivityEntry(e.role, e.text, m.activityViewport.Width)
+}
+
+// rebuildActivity re-renders every activity-panel entry from scratch —
+// activityWidth's word-wrap changes on resize, same reason rebuildHistory
+// exists for the main transcript.
+func (m *chatModel) rebuildActivity() {
+	var b strings.Builder
+	for i, e := range m.activityEntries {
+		if i > 0 {
+			b.WriteString("\n\n")
+		}
+		b.WriteString(renderActivityEntry(e.role, e.text, m.activityViewport.Width))
+	}
+	m.activityRendered = b.String()
+}
+
 // flushCurrentTurn moves any in-progress thinking/answer text into the
 // transcript and re-renders. Called when a stream ends, successfully or not.
 func (m *chatModel) flushCurrentTurn() {
 	if m.currentThinking.Len() > 0 {
-		m.appendEntry("thinking", m.currentThinking.String())
+		if m.showActivity {
+			m.appendActivityEntry("thinking", m.currentThinking.String())
+		} else {
+			m.appendEntry("thinking", m.currentThinking.String())
+		}
 		m.currentThinking.Reset()
 	}
 	if m.current.Len() > 0 {
@@ -424,6 +592,7 @@ func (m *chatModel) flushCurrentTurn() {
 		m.current.Reset()
 	}
 	m.refreshViewport()
+	m.refreshActivityViewport()
 }
 
 // appendEntry adds a finalized entry to the transcript and renders it once,
@@ -615,6 +784,8 @@ func writeEntry(b *strings.Builder, role, text string) {
 		b.WriteString(thinkingStyle.Render("💭 Thinking"))
 		b.WriteString("\n")
 		b.WriteString(thinkingStyle.Render(text))
+	case "tool":
+		b.WriteString(toolStyle.Render(text))
 	default:
 		b.WriteString(assistantStyle.Render("Assistant"))
 		b.WriteString("\n")
@@ -707,6 +878,28 @@ func (m *chatModel) runCommand(line string) tea.Cmd {
 		}
 		m.note("code mode: " + state)
 		logLocal(slog.LevelInfo, "code_mode_toggled", "enabled", m.codeEnabled)
+
+	case "/activity":
+		switch strings.ToLower(arg) {
+		case "on":
+			m.activityEnabled = true
+		case "off":
+			m.activityEnabled = false
+		default:
+			m.activityEnabled = !m.activityEnabled
+		}
+		// Recompute layout immediately: showActivity, both viewports'
+		// widths, and word-wrapping all depend on it.
+		m.setSize(m.width, m.height)
+		state := "off"
+		if m.activityEnabled {
+			state = "on"
+			if !m.showActivity {
+				state += fmt.Sprintf(" (terminal narrower than %d cols — showing inline instead)", activityMinWidth)
+			}
+		}
+		m.note("activity panel: " + state)
+		logLocal(slog.LevelInfo, "activity_panel_toggled", "enabled", m.activityEnabled)
 
 	case "/save":
 		path, err := writeSessionFile(arg, m.history)
