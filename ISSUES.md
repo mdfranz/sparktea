@@ -60,34 +60,42 @@ the prior model left a thinking block in history.
 ## pydantic-ai-go: OpenAI Responses stream doesn't recognize web-search progress events
 
 Found 2026-09-05 via a live session testing sparktea's new OpenAI support.
-Confirmed via Logfire traces; not yet filed upstream or fixed.
+Confirmed via Logfire traces.
 
-`responses_stream.go`'s event-type switch (around line 714) hardcodes an
-allowlist of provider progress events safe to ignore per tool family —
+### [#4](https://github.com/Kludex/pydantic-ai-go/issues/4) — OpenAI Responses stream: `response.web_search_call.*` progress events not recognized, crashes the run
+
+**Status: open, unfixed.**
+
+`responses_stream.go:714-731`'s event-type switch hardcodes an allowlist of
+provider progress events safe to ignore per tool family —
 `response.code_interpreter_call.*`, `response.image_generation_call.*`,
-`response.file_search_call.*`, `response.mcp_call.*` — but has no
-`response.web_search_call.*` entries at all. Any such event falls through to
-the `default:` case and aborts the stream with `openai: unknown Responses
-stream event type "response.web_search_call.in_progress"`.
+`response.file_search_call.*`, `response.mcp_call.*`/`mcp_list_tools.*` —
+but has no `response.web_search_call.*` entries at all. Any such event falls
+through to the `default:` case and aborts the stream with `openai: unknown
+Responses stream event type "response.web_search_call.in_progress"`.
 
 Repro: `openai.NewResponsesModel(...)` with `ai.WithRunNativeTools(ai.WebSearchTool{...})`,
 a prompt that actually triggers a web search call, streamed (not static)
 generation. Fails immediately with the error above; the run is aborted, not
-degraded.
+degraded. Unlike #2/#3, this needs no prior turn or history replay — the
+*first* streamed native web search on an OpenAI model crashes the turn.
 
-**Impact on sparktea:** unlike the two issues above, this doesn't need a
-prior turn or history replay — the *first* streamed native web search on an
-OpenAI model crashes the turn. `supportsNativeWebSearch()` in `models.go`
-excludes `providerOpenAI` entirely as a result, so `/search` is currently
-unavailable for OpenAI models (same treatment as Mistral, for an unrelated
-reason) until this is fixed upstream.
+**Impact on sparktea:** `supportsNativeWebSearch()` in `models.go` excludes
+`providerOpenAI` entirely as a result, so `/search` is currently unavailable
+for OpenAI models (same treatment as Mistral, for an unrelated reason) until
+this is fixed upstream.
+
+**Pattern shared with #2/#3:** all three are the same shape of bug — a
+hand-maintained enumeration of cases (part types, provider guards, event
+types) that covers every variant except one. `ai.ThinkingPart` handling is
+the common thread in #2/#3; here it's native-tool event-type coverage in
+the Responses stream parser instead.
 
 ## Verifying a fix
 
 Once an issue closes, `go get github.com/Kludex/pydantic-ai-go/ai@main
 ... && go mod tidy` (see README's "Updating pydantic-ai-go") and re-run the
-matching repro above. The two thinking-block issues need no sparktea-side
-change either way — both are in the provider adapters' request
-serialization, not in how sparktea builds or replays `m.history`. The
-OpenAI web-search issue does: once fixed, add `providerOpenAI` back to
-`supportsNativeWebSearch()` in `models.go`.
+matching repro above. #2 and #3 need no sparktea-side change either way —
+both are in the provider adapters' request serialization, not in how
+sparktea builds or replays `m.history`. #4 does: once fixed, add
+`providerOpenAI` back to `supportsNativeWebSearch()` in `models.go`.

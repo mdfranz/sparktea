@@ -121,8 +121,8 @@ func (m modelOption) newModel() ai.Model {
 // interface: pydantic-ai-go's Responses stream parser doesn't recognize the
 // response.web_search_call.* progress events OpenAI actually streams back,
 // so a real web search call crashes the turn outright rather than degrading
-// — confirmed live via Logfire 2026-09-05. See ISSUES.md. Re-enable once
-// that's fixed upstream.
+// — confirmed live via Logfire 2026-09-05, filed as
+// github.com/Kludex/pydantic-ai-go#4. Re-enable once that's fixed upstream.
 func (m modelOption) supportsNativeWebSearch() bool {
 	switch m.provider {
 	case providerOpenRouter, providerGoogle, providerAnthropic:
