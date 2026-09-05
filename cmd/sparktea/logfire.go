@@ -100,7 +100,19 @@ func initLogfire(ctx context.Context) (shutdown func(context.Context) error, err
 	)
 
 	return func(ctx context.Context) error {
-		return errors.Join(tracerProvider.Shutdown(ctx), meterProvider.Shutdown(ctx))
+		metricsErr := meterProvider.Shutdown(ctx)
+		if metricsErr != nil {
+			// Confirmed via Logfire query (2026-09-05): the periodic reader
+			// already ships every recorded histogram point on its own
+			// ~60s cadence, so by the time shutdown forces one more
+			// collect-and-export there's nothing new to send. Logfire's
+			// metrics endpoint 422s on that trailing, unchanged export
+			// instead of treating it as a no-op — cosmetic, no data is
+			// lost, so don't surface it as a telemetry failure.
+			logLocal(slog.LevelDebug, "logfire_metrics_final_flush_failed", "error", metricsErr.Error())
+			metricsErr = nil
+		}
+		return errors.Join(tracerProvider.Shutdown(ctx), metricsErr)
 	}, nil
 }
 
