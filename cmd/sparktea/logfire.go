@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"strings"
 
@@ -139,6 +140,7 @@ func (t *runTracer) observe(part ai.ResponsePart) {
 		if part.ToolCallID == "" {
 			return
 		}
+		logLocal(slog.LevelInfo, "native_tool_started", "tool", part.ToolName)
 		_, span := tracer.Start(t.ctx, part.ToolName, trace.WithAttributes(
 			attribute.String("gen_ai.operation.name", "execute_tool"),
 			attribute.String("gen_ai.tool.name", part.ToolName),
@@ -153,6 +155,9 @@ func (t *runTracer) observe(part ai.ResponsePart) {
 		}
 		if part.Outcome != "" && part.Outcome != ai.ToolReturnOutcomeSuccess {
 			span.SetStatus(codes.Error, string(part.Outcome))
+			logLocal(slog.LevelWarn, "native_tool_finished", "tool", part.ToolName, "outcome", string(part.Outcome))
+		} else {
+			logLocal(slog.LevelInfo, "native_tool_finished", "tool", part.ToolName, "outcome", "success")
 		}
 		span.End()
 		delete(t.tools, part.ToolCallID)

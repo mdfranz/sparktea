@@ -6,6 +6,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"log/slog"
 	"os"
 	"strings"
 
@@ -120,12 +121,14 @@ func runOnce(ctx context.Context, option modelOption, opts cliOptions) error {
 		}
 	}
 
+	logLocal(slog.LevelInfo, "turn_started", "mode", "one_shot", "provider", string(option.provider), "model", option.modelID, "web_search", opts.search && option.supportsNativeWebSearch(), "code_mode", opts.code)
 	runTracer, runCtx := startRunTracer(ctx, "sparktea turn")
 
 	run := agent.RunStream(runCtx, opts.prompt, struct{}{}, runOpts...)
 	for event, err := range run.Events() {
 		if err != nil {
 			runTracer.end(err)
+			logLocalError("turn_failed", err, "mode", "one_shot", "provider", string(option.provider), "model", option.modelID)
 			return err
 		}
 		switch e := event.(type) {
@@ -147,6 +150,7 @@ func runOnce(ctx context.Context, option modelOption, opts cliOptions) error {
 				fmt.Fprint(os.Stderr, delta.ContentDelta)
 			}
 		case ai.FunctionToolCallEvent:
+			logLocal(slog.LevelInfo, "tool_started", "tool", e.Part.ToolName)
 			// Args is fully assembled by the time this fires (right before
 			// execution), unlike the same ToolCallPart seen earlier via
 			// PartStartEvent, whose Args streams in over ToolCallPartDelta
@@ -155,9 +159,11 @@ func runOnce(ctx context.Context, option modelOption, opts cliOptions) error {
 		case ai.FunctionToolResultEvent:
 			switch part := e.Part.(type) {
 			case ai.ToolReturnPart:
+				logLocal(slog.LevelInfo, "tool_finished", "tool", part.ToolName, "outcome", "success")
 				content, _ := json.Marshal(part.Content)
 				fmt.Fprintf(os.Stderr, "[tool result] %s %s\n", part.ToolName, content)
 			case ai.RetryPromptPart:
+				logLocal(slog.LevelWarn, "tool_finished", "tool", part.ToolName, "outcome", "error")
 				fmt.Fprintf(os.Stderr, "[tool error] %s %s\n", part.ToolName, part.Content)
 			}
 		}
@@ -167,6 +173,9 @@ func runOnce(ctx context.Context, option modelOption, opts cliOptions) error {
 
 	if result := run.Result(); result != nil {
 		u := result.Usage()
+		args := []any{"mode", "one_shot", "provider", string(option.provider), "model", option.modelID}
+		args = append(args, usageLogArgs(u)...)
+		logLocal(slog.LevelInfo, "turn_completed", args...)
 		cost := "unknown"
 		if u.CostUSD != nil {
 			cost = fmt.Sprintf("$%.4f", *u.CostUSD)
