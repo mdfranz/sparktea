@@ -107,6 +107,12 @@ sparktea -model anthropic:claude-haiku-4-5-20251001 -code \
   stderr — redirect it away (`2>/dev/null`) for just the answer, or capture
   it separately to see what a script actually ran.
 
+`./test_sparktea.sh` exercises this CLI end to end: flag parsing and error
+paths always run; a live prompt and a live Code Mode `run_code` call run too
+if at least one provider API key is set (skipped otherwise). Set
+`SPARKTEA_TEST_LIVE=0` to skip the live checks even with a key present, or
+`SPARKTEA_TEST_MODEL=provider:model_id` to pin which model they use.
+
 ## Observability (Logfire)
 
 Set `LOGFIRE_TOKEN` to send OpenTelemetry traces and metrics to
