@@ -2,8 +2,8 @@
 
 A terminal chat UI, built with [bubbletea](https://github.com/charmbracelet/bubbletea),
 for talking to any model [**pydantic-ai-go**](https://github.com/Kludex/pydantic-ai-go)
-supports — currently OpenRouter, Google Gemini, Anthropic, and Mistral, with
-more just an import away.
+supports — currently OpenRouter, Google Gemini, Anthropic, Mistral, and
+OpenAI, with more just an import away.
 
 Launch it, pick a model, and chat. Responses stream in token-by-token,
 thinking traces render when a model exposes them, and conversation history
@@ -41,6 +41,7 @@ export OPENROUTER_API_KEY="sk-or-..."
 export GEMINI_API_KEY="..."   # or GOOGLE_API_KEY
 export ANTHROPIC_API_KEY="sk-ant-..."
 export MISTRAL_API_KEY="..."
+export OPENAI_API_KEY="sk-..."
 go run ./cmd/sparktea
 ```
 
@@ -49,6 +50,7 @@ Keys:
 - `GEMINI_API_KEY` or `GOOGLE_API_KEY` — required for Gemini models.
 - `ANTHROPIC_API_KEY` — required for direct Anthropic (Claude) models.
 - `MISTRAL_API_KEY` — required for Mistral models.
+- `OPENAI_API_KEY` — required for direct OpenAI (GPT) models.
 
 ## Building
 
@@ -83,7 +85,7 @@ Type these instead of a message:
 | `/model` | Reopen the model picker mid-conversation; history carries over, even across providers. Known upstream bug: if the prior model left a `ThinkingPart` in history, the first turn on a different provider can fail — see `ISSUES.md`. |
 | `/usage` | Show session totals: requests, input/output tokens, tool calls, cost. A running total (tokens · cost) also shows in the header after each completed turn. |
 | `/clear` | Discard history and usage totals; start fresh without restarting. |
-| `/search` (or `/search on`/`off`) | Toggle native web search grounding (`ai.WebSearchTool`) for models that support it. OpenRouter, Gemini, and Anthropic models pick it up (or silently skip it if the underlying model doesn't do web search); Mistral's adapter doesn't implement pydantic-ai-go's native-tool interface at all, so sparktea leaves the tool out of the request entirely rather than send something the transport would reject — `/search on` on a Mistral model just notes that it's a no-op. When a turn's answer cites pages, sparktea shows a "🔗 Sources:" list below it — the three providers each surface this differently (Gemini's grounding chunks, Anthropic's search-result blocks, OpenRouter's annotations), so a page a model consulted without citing may not appear. Known upstream bug: turning search on can break the next turn if history has a prior thinking block — see `ISSUES.md`. |
+| `/search` (or `/search on`/`off`) | Toggle native web search grounding (`ai.WebSearchTool`) for models that support it. OpenRouter, Gemini, Anthropic, and OpenAI models pick it up (or silently skip it if the underlying model doesn't do web search); Mistral's adapter doesn't implement pydantic-ai-go's native-tool interface at all, so sparktea leaves the tool out of the request entirely rather than send something the transport would reject — `/search on` on a Mistral model just notes that it's a no-op. When a turn's answer cites pages, sparktea shows a "🔗 Sources:" list below it — providers surface this differently (Gemini's grounding chunks, Anthropic's search-result blocks, OpenRouter's annotations, OpenAI's URL citations), so a page a model consulted without citing may not appear. Known upstream bug: turning search on can break the next turn if history has a prior thinking block — see `ISSUES.md`. |
 | `/code` (or `/code on`/`off`) | Toggle Code Mode: gives the model a `run_code` tool that executes Python in a sandbox. Off by default. See "Code Mode" below. |
 | `/save [name]` | Write the conversation to `~/.sparktea/sessions/<name>.json` (default name `default`). |
 | `/load [name]` | Restore a saved conversation, replaying its transcript and history. |
@@ -232,13 +234,13 @@ libraries are currently only rebuilt/verified for macOS arm64).
 
 The startup list is a static catalog in `models.go`. Add an entry there —
 `{label, provider, modelID}` — to offer another OpenRouter, Gemini,
-Anthropic, or Mistral model ID. `~`-prefixed OpenRouter IDs are OpenRouter's
-alias syntax (e.g. `~deepseek/deepseek-v4-flash-latest` always redirects to
-the newest snapshot in that family).
+Anthropic, Mistral, or OpenAI model ID. `~`-prefixed OpenRouter IDs are
+OpenRouter's alias syntax (e.g. `~deepseek/deepseek-v4-flash-latest` always
+redirects to the newest snapshot in that family).
 
 Adding a whole new provider is just as thin: pick one of pydantic-ai-go's
 other [model packages](https://github.com/Kludex/pydantic-ai-go/tree/main/ai/models)
-(`openai`, `bedrock`, `groq`, `xai`, `cohere`, `ollama`, ...), add a
+(`bedrock`, `groq`, `xai`, `cohere`, `ollama`, ...), add a
 `provider` constant, a case in `newModel()`, and a case in
 `apiKeyPresent()` (`models.go`), and list it in `modelCatalog`. If the new
 provider's pydantic-ai-go adapter implements `NativeToolSupportModel` (most
@@ -257,7 +259,8 @@ go get github.com/Kludex/pydantic-ai-go/ai@main \
   github.com/Kludex/pydantic-ai-go/ai/models/openrouter@main \
   github.com/Kludex/pydantic-ai-go/ai/models/google@main \
   github.com/Kludex/pydantic-ai-go/ai/models/anthropic@main \
-  github.com/Kludex/pydantic-ai-go/ai/models/mistral@main
+  github.com/Kludex/pydantic-ai-go/ai/models/mistral@main \
+  github.com/Kludex/pydantic-ai-go/ai/models/openai@main
 go mod tidy
 ```
 

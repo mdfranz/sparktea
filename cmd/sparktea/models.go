@@ -8,6 +8,7 @@ import (
 	"github.com/Kludex/pydantic-ai-go/ai/models/anthropic"
 	"github.com/Kludex/pydantic-ai-go/ai/models/google"
 	"github.com/Kludex/pydantic-ai-go/ai/models/mistral"
+	"github.com/Kludex/pydantic-ai-go/ai/models/openai"
 	"github.com/Kludex/pydantic-ai-go/ai/models/openrouter"
 )
 
@@ -19,6 +20,7 @@ const (
 	providerGoogle     provider = "google"
 	providerAnthropic  provider = "anthropic"
 	providerMistral    provider = "mistral"
+	providerOpenAI     provider = "openai"
 )
 
 // modelOption is one selectable entry in the startup picker. It implements
@@ -54,6 +56,9 @@ var modelCatalog = []modelOption{
 	{"Mistral Large", providerMistral, "mistral-large-latest"},
 	{"Mistral Medium", providerMistral, "mistral-medium-latest"},
 	{"Mistral Small", providerMistral, "mistral-small-latest"},
+	{"GPT-5.6 Sol", providerOpenAI, "gpt-5.6-sol"},
+	{"GPT-5.6 Terra", providerOpenAI, "gpt-5.6-terra"},
+	{"GPT-5.6 Luna", providerOpenAI, "gpt-5.6-luna"},
 }
 
 // apiKeyPresent reports whether the environment has credentials for this
@@ -68,6 +73,8 @@ func (m modelOption) apiKeyPresent() bool {
 		return os.Getenv("ANTHROPIC_API_KEY") != ""
 	case providerMistral:
 		return os.Getenv("MISTRAL_API_KEY") != ""
+	case providerOpenAI:
+		return os.Getenv("OPENAI_API_KEY") != ""
 	default:
 		return false
 	}
@@ -91,6 +98,8 @@ func (m modelOption) newModel() ai.Model {
 		return anthropic.NewModel(m.modelID)
 	case providerMistral:
 		return mistral.NewModel(m.modelID)
+	case providerOpenAI:
+		return openai.NewModel(m.modelID)
 	default:
 		panic("sparktea: unknown provider " + string(m.provider))
 	}
@@ -104,7 +113,7 @@ func (m modelOption) newModel() ai.Model {
 // effect when SupportsNativeTool exists to be consulted.
 func (m modelOption) supportsNativeWebSearch() bool {
 	switch m.provider {
-	case providerOpenRouter, providerGoogle, providerAnthropic:
+	case providerOpenRouter, providerGoogle, providerAnthropic, providerOpenAI:
 		return true
 	default:
 		return false
