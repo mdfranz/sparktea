@@ -237,7 +237,7 @@ func (m *chatModel) View() string {
 	header := headerStyle.Render(title)
 
 	status := helpStyle.Render("enter: send · /model /usage /clear /search /save /load · esc/ctrl+c/ctrl+d: quit")
-	if m.searchEnabled {
+	if m.searchEnabled && m.option.supportsNativeWebSearch() {
 		status = helpStyle.Render("🔎 web search on · ") + status
 	}
 	if m.streaming {
@@ -375,6 +375,9 @@ func (m *chatModel) runCommand(line string) tea.Cmd {
 		state := "off"
 		if m.searchEnabled {
 			state = "on"
+			if !m.option.supportsNativeWebSearch() {
+				state += fmt.Sprintf(" (%s has no native web search — ignored)", m.option.provider)
+			}
 		}
 		m.note("web search: " + state)
 
@@ -424,9 +427,12 @@ func (m *chatModel) startStream(prompt string) tea.Cmd {
 	history := m.history
 
 	runOpts := []ai.RunOption{ai.WithMessageHistory(history)}
-	if m.searchEnabled {
+	if m.searchEnabled && m.option.supportsNativeWebSearch() {
 		// Optional: true lets models without native search support just skip
-		// it instead of failing the run.
+		// it instead of failing the run. Providers with no native-tool
+		// support at all (see supportsNativeWebSearch) are excluded here
+		// entirely, since Optional can't help those — the request errors
+		// before the provider ever gets a chance to ignore it.
 		runOpts = append(runOpts, ai.WithRunNativeTools(ai.WebSearchTool{Optional: true}))
 	}
 

@@ -2,8 +2,8 @@
 
 A terminal chat UI, built with [bubbletea](https://github.com/charmbracelet/bubbletea),
 for talking to any model [**pydantic-ai-go**](https://github.com/Kludex/pydantic-ai-go)
-supports — currently OpenRouter and Google Gemini, with more just an import
-away.
+supports — currently OpenRouter, Google Gemini, Anthropic, and Mistral, with
+more just an import away.
 
 Launch it, pick a model, and chat. Responses stream in token-by-token,
 thinking traces render when a model exposes them, and conversation history
@@ -23,7 +23,7 @@ just wires it up to a terminal:
 | The whole chat loop, streamed token-by-token | `ai.Agent`, `Agent.RunStream`, `PartStartEvent`/`PartDeltaEvent` |
 | Every model provider (OpenRouter, Gemini, and a one-line swap away from OpenAI, Anthropic, Bedrock, Groq, Mistral, xAI, and more) | `ai/models/*` provider adapters |
 | Cross-provider history when you `/model` mid-conversation | `ai.ModelMessage`, `ai.WithMessageHistory` — a provider-neutral message format |
-| `/search` web grounding | `ai.WebSearchTool` / `ai.WithRunNativeTools` |
+| `/search` web grounding (on providers whose adapter implements native-tool support) | `ai.WebSearchTool` / `ai.WithRunNativeTools` |
 | Thinking traces rendered above the answer | `ai.ThinkingPart` / `ai.ThinkingPartDelta` |
 | `/save` and `/load` | `ai.MarshalMessages` / `ai.UnmarshalMessages` |
 | `/usage` totals, including cost | `ai.Usage` and its `genai-prices` integration |
@@ -44,12 +44,29 @@ for providers with a key present.
 ```console
 export OPENROUTER_API_KEY="sk-or-..."
 export GEMINI_API_KEY="..."   # or GOOGLE_API_KEY
+export ANTHROPIC_API_KEY="sk-ant-..."
+export MISTRAL_API_KEY="..."
 go run .
 ```
 
 Keys:
 - `OPENROUTER_API_KEY` — required for OpenRouter models.
 - `GEMINI_API_KEY` or `GOOGLE_API_KEY` — required for Gemini models.
+- `ANTHROPIC_API_KEY` — required for direct Anthropic (Claude) models.
+- `MISTRAL_API_KEY` — required for Mistral models.
+
+## Building
+
+`go run .` is fine for iterating, but a `Makefile` is included for a real
+binary:
+
+```console
+make build    # builds ./sparktea in the current directory
+make install  # builds, then installs to ~/.local/bin/sparktea
+make clean    # removes ./sparktea
+```
+
+`make install` expects `~/.local/bin` to be on your `PATH`.
 
 ## Usage
 
@@ -67,7 +84,7 @@ Type these instead of a message:
 | `/model` | Reopen the model picker mid-conversation; history carries over, even across providers. |
 | `/usage` | Show session totals: requests, input/output tokens, tool calls, cost. |
 | `/clear` | Discard history and usage totals; start fresh without restarting. |
-| `/search` (or `/search on`/`off`) | Toggle native web search grounding (`ai.WebSearchTool`) for models that support it. Unsupported models just ignore it. |
+| `/search` (or `/search on`/`off`) | Toggle native web search grounding (`ai.WebSearchTool`) for models that support it. OpenRouter, Gemini, and Anthropic models pick it up (or silently skip it if the underlying model doesn't do web search); Mistral's adapter doesn't implement pydantic-ai-go's native-tool interface at all, so sparktea leaves the tool out of the request entirely rather than send something the transport would reject — `/search on` on a Mistral model just notes that it's a no-op. |
 | `/save [name]` | Write the conversation to `~/.sparktea/sessions/<name>.json` (default name `default`). |
 | `/load [name]` | Restore a saved conversation, replaying its transcript and history. |
 
@@ -99,16 +116,20 @@ installed and agents behave exactly as before.
 ## Adding models
 
 The startup list is a static catalog in `models.go`. Add an entry there —
-`{label, provider, modelID}` — to offer another OpenRouter model ID or
-Gemini model. `~`-prefixed OpenRouter IDs are OpenRouter's alias syntax
-(e.g. `~deepseek/deepseek-v4-flash-latest` always redirects to the newest
-snapshot in that family).
+`{label, provider, modelID}` — to offer another OpenRouter, Gemini,
+Anthropic, or Mistral model ID. `~`-prefixed OpenRouter IDs are OpenRouter's
+alias syntax (e.g. `~deepseek/deepseek-v4-flash-latest` always redirects to
+the newest snapshot in that family).
 
 Adding a whole new provider is just as thin: pick one of pydantic-ai-go's
 other [model packages](https://github.com/Kludex/pydantic-ai-go/tree/main/ai/models)
-(`anthropic`, `openai`, `bedrock`, `groq`, `mistral`, `xai`, `cohere`,
-`ollama`, ...), add a `provider` constant and a case in `newModel()`
-(`models.go`), and list it in `modelCatalog`.
+(`openai`, `bedrock`, `groq`, `xai`, `cohere`, `ollama`, ...), add a
+`provider` constant, a case in `newModel()`, and a case in
+`apiKeyPresent()` (`models.go`), and list it in `modelCatalog`. If the new
+provider's pydantic-ai-go adapter implements `NativeToolSupportModel` (most
+do), also add it to `supportsNativeWebSearch()` so `/search` picks it up —
+otherwise leave it out, since an adapter without that interface has any
+`ai.NativeTool` rejected outright, `Optional: true` or not.
 
 ## Updating pydantic-ai-go
 
@@ -119,7 +140,9 @@ latest commit on `main`). To pick up upstream changes:
 ```console
 go get github.com/Kludex/pydantic-ai-go/ai@main \
   github.com/Kludex/pydantic-ai-go/ai/models/openrouter@main \
-  github.com/Kludex/pydantic-ai-go/ai/models/google@main
+  github.com/Kludex/pydantic-ai-go/ai/models/google@main \
+  github.com/Kludex/pydantic-ai-go/ai/models/anthropic@main \
+  github.com/Kludex/pydantic-ai-go/ai/models/mistral@main
 go mod tidy
 ```
 
