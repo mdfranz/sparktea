@@ -1,6 +1,7 @@
 package main
 
 import (
+	"strings"
 	"testing"
 
 	ai "github.com/Kludex/pydantic-ai-go/ai"
@@ -47,5 +48,26 @@ func TestFormatUsageCompact(t *testing.T) {
 	got = formatUsageCompact(ai.Usage{InputTokens: 10, OutputTokens: 5})
 	if want := "15 tok"; got != want {
 		t.Errorf("formatUsageCompact() with Requests unset = %q, want %q", got, want)
+	}
+}
+
+// TestHeaderShowsUsageAfterCompletedTurn drives the actual Update/View path
+// a real completed turn takes — streamDoneMsg carrying usage, same as
+// startStream sends — rather than just the pure formatting helper, to catch
+// any wiring bug between sessionUsage and the rendered header.
+func TestHeaderShowsUsageAfterCompletedTurn(t *testing.T) {
+	option := modelOption{label: "Test Model", provider: providerAnthropic, modelID: "claude-haiku-4-5-20251001"}
+	m, _ := newChatModel(option, 80, 24)
+
+	if got := m.View(); strings.Contains(got, "tok") {
+		t.Fatalf("View() before any turn already mentions usage:\n%s", got)
+	}
+
+	updated, _ := m.Update(streamDoneMsg{usage: ai.Usage{Requests: 1, InputTokens: 10, OutputTokens: 5}})
+	m = updated.(*chatModel)
+
+	got := m.View()
+	if !strings.Contains(got, "15 tok") {
+		t.Errorf("View() after streamDoneMsg should show the usage total, got:\n%s", got)
 	}
 }

@@ -77,7 +77,14 @@ func (m modelOption) apiKeyPresent() bool {
 func (m modelOption) newModel() ai.Model {
 	switch m.provider {
 	case providerOpenRouter:
-		return openrouter.NewModel(m.modelID)
+		// OpenRouter only returns token usage and cost when a request opts
+		// in via its own "usage: {include: true}" extension — the generic
+		// OpenAI-compatible stream_options.include_usage pydantic-ai-go
+		// already sends isn't enough for every model OpenRouter routes to.
+		// Without this, sessionUsage (and the header total) stays at zero
+		// even on a fully successful turn.
+		settings, _ := openrouter.Settings{Usage: &openrouter.UsageConfig{Include: true}}.Build()
+		return openrouter.NewModel(m.modelID, openrouter.WithDefaultSettings(settings))
 	case providerGoogle:
 		return google.NewModel(m.modelID)
 	case providerAnthropic:
