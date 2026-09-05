@@ -317,6 +317,34 @@ func (m *chatModel) adjustInputHeight() {
 	m.refreshViewport()
 }
 
+// formatUsageCompact renders a short running-total for the header — total
+// tokens and, when the provider reports it, cost. Empty until the first
+// turn completes (u.Requests == 0), since View re-renders on every message
+// anyway, this is all that's needed for the header to track sessionUsage as
+// it grows turn by turn; there's no separate timer.
+func formatUsageCompact(u ai.Usage) string {
+	if u.Requests == 0 {
+		return ""
+	}
+	s := formatCount(u.TotalTokens()) + " tok"
+	if u.CostUSD != nil {
+		s += fmt.Sprintf(" · $%.4f", *u.CostUSD)
+	}
+	return s
+}
+
+// formatCount abbreviates large token counts (12345 -> "12.3k").
+func formatCount(n int) string {
+	switch {
+	case n >= 1_000_000:
+		return fmt.Sprintf("%.1fM", float64(n)/1_000_000)
+	case n >= 1_000:
+		return fmt.Sprintf("%.1fk", float64(n)/1_000)
+	default:
+		return fmt.Sprintf("%d", n)
+	}
+}
+
 func (m *chatModel) View() string {
 	if !m.ready {
 		return "initializing…"
@@ -324,6 +352,9 @@ func (m *chatModel) View() string {
 	title := fmt.Sprintf("sparktea · %s", m.option.label)
 	if logfireCapability != nil {
 		title += " · 🔭 logfire"
+	}
+	if usage := formatUsageCompact(m.sessionUsage); usage != "" {
+		title += " · " + usage
 	}
 	header := headerStyle.Render(title)
 

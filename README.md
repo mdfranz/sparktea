@@ -81,7 +81,7 @@ Type these instead of a message:
 | Command | Effect |
 | --- | --- |
 | `/model` | Reopen the model picker mid-conversation; history carries over, even across providers. |
-| `/usage` | Show session totals: requests, input/output tokens, tool calls, cost. |
+| `/usage` | Show session totals: requests, input/output tokens, tool calls, cost. A running total (tokens · cost) also shows in the header after each completed turn. |
 | `/clear` | Discard history and usage totals; start fresh without restarting. |
 | `/search` (or `/search on`/`off`) | Toggle native web search grounding (`ai.WebSearchTool`) for models that support it. OpenRouter, Gemini, and Anthropic models pick it up (or silently skip it if the underlying model doesn't do web search); Mistral's adapter doesn't implement pydantic-ai-go's native-tool interface at all, so sparktea leaves the tool out of the request entirely rather than send something the transport would reject — `/search on` on a Mistral model just notes that it's a no-op. |
 | `/code` (or `/code on`/`off`) | Toggle Code Mode: gives the model a `run_code` tool that executes Python in a sandbox. Off by default. See "Code Mode" below. |
