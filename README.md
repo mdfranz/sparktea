@@ -159,8 +159,20 @@ service name (default `sparktea`).
 
 Prompts, completions, and full request parameters are **not** sent by
 default, since this telemetry leaves your machine — only trace structure,
-token counts, and cost. Set `LOGFIRE_SEND_CONTENT=1` to include them once
-you trust the destination project with conversation content.
+token counts, and cost.
+
+**To send full content** (prompts, completions, tool inputs/results) to
+Logfire, set `LOGFIRE_SEND_CONTENT=1` alongside `LOGFIRE_TOKEN`:
+
+```console
+export LOGFIRE_TOKEN="your-write-token"
+export LOGFIRE_SEND_CONTENT=1
+go run ./cmd/sparktea
+```
+
+Only do this once you trust the destination Logfire project with
+conversation content — it's an additive opt-in, not a mode you can enable
+per-turn from inside the TUI.
 
 Without `LOGFIRE_TOKEN` set, none of this runs — no OTel providers are
 installed and agents behave exactly as before.
