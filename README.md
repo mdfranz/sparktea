@@ -113,12 +113,31 @@ if at least one provider API key is set (skipped otherwise). Set
 `SPARKTEA_TEST_LIVE=0` to skip the live checks even with a key present, or
 `SPARKTEA_TEST_MODEL=provider:model_id` to pin which model they use.
 
+## Local logs
+
+sparktea always writes operational diagnostics to
+`~/.sparktea/logs/sparktea-YYYY-MM-DD.jsonl`, one JSON object per line and
+one file per local calendar day. Log files and their directory are private to
+your user account (`0600` and `0700`, respectively) and are retained until
+you remove them.
+
+The logs record lifecycle events, selected provider/model, enabled modes,
+usage, tool names/outcomes, and error types. They never include prompts,
+responses, thinking, tool inputs/results, session identifiers, or credentials.
+For example, filter today's events with:
+
+```console
+jq -r '.msg' ~/.sparktea/logs/sparktea-$(date +%F).jsonl
+```
+
 ## Observability (Logfire)
 
 Set `LOGFIRE_TOKEN` to send OpenTelemetry traces and metrics to
 [Logfire](https://pydantic.dev/logfire), Pydantic's own observability
 product — the run's agent spans, model requests, token usage, and cost, one
-trace per turn:
+trace per turn. Native (provider-executed) tool calls — web search, code
+execution — get their own child span too, since the underlying library only
+ever folds those into the chat span's message history otherwise.
 
 ```console
 export LOGFIRE_TOKEN="your-write-token"

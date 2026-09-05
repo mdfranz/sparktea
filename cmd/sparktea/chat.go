@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strings"
 
 	ai "github.com/Kludex/pydantic-ai-go/ai"
@@ -338,6 +339,7 @@ func (m *chatModel) switchModel(option modelOption) {
 	}
 	m.option = option
 	m.agent = newAgentFor(option)
+	logLocal(slog.LevelInfo, "model_switched", "provider", string(option.provider), "model", option.modelID)
 	m.note(fmt.Sprintf("— switched to %s —", option.label))
 }
 
@@ -370,6 +372,7 @@ func (m *chatModel) runCommand(line string) tea.Cmd {
 		m.sessionUsage = ai.Usage{}
 		m.err = nil
 		m.note("History cleared.")
+		logLocal(slog.LevelInfo, "history_cleared")
 
 	case "/search":
 		switch strings.ToLower(arg) {
@@ -388,6 +391,7 @@ func (m *chatModel) runCommand(line string) tea.Cmd {
 			}
 		}
 		m.note("web search: " + state)
+		logLocal(slog.LevelInfo, "web_search_toggled", "enabled", m.searchEnabled)
 
 	case "/code":
 		switch strings.ToLower(arg) {
@@ -403,18 +407,22 @@ func (m *chatModel) runCommand(line string) tea.Cmd {
 			state = "on"
 		}
 		m.note("code mode: " + state)
+		logLocal(slog.LevelInfo, "code_mode_toggled", "enabled", m.codeEnabled)
 
 	case "/save":
 		path, err := writeSessionFile(arg, m.history)
 		if err != nil {
+			logLocalError("session_save_failed", err)
 			m.note("save failed: " + err.Error())
 			break
 		}
+		logLocal(slog.LevelInfo, "session_saved")
 		m.note("saved session to " + path)
 
 	case "/load":
 		messages, path, err := readSessionFile(arg)
 		if err != nil {
+			logLocalError("session_load_failed", err)
 			m.note("load failed: " + err.Error())
 			break
 		}
@@ -423,8 +431,10 @@ func (m *chatModel) runCommand(line string) tea.Cmd {
 		m.sessionUsage = ai.Usage{}
 		m.err = nil
 		m.note("loaded session from " + path)
+		logLocal(slog.LevelInfo, "session_loaded")
 
 	default:
+		logLocal(slog.LevelWarn, "unknown_command")
 		m.note("unknown command: " + name)
 	}
 	return nil
@@ -448,9 +458,12 @@ func (m *chatModel) startStream(prompt string) tea.Cmd {
 	agent := m.agent
 	ctx := m.ctx
 	history := m.history
+	option := m.option
+	searchEnabled := m.searchEnabled && option.supportsNativeWebSearch()
+	codeEnabled := m.codeEnabled
 
 	runOpts := []ai.RunOption{ai.WithMessageHistory(history)}
-	if m.searchEnabled && m.option.supportsNativeWebSearch() {
+	if searchEnabled {
 		// Optional: true lets models without native search support just skip
 		// it instead of failing the run. Providers with no native-tool
 		// support at all (see supportsNativeWebSearch) are excluded here
@@ -463,14 +476,20 @@ func (m *chatModel) startStream(prompt string) tea.Cmd {
 	}
 
 	go func() {
-		run := agent.RunStream(ctx, prompt, struct{}{}, runOpts...)
+		logLocal(slog.LevelInfo, "turn_started", "mode", "interactive", "provider", string(option.provider), "model", option.modelID, "web_search", searchEnabled, "code_mode", codeEnabled)
+		runTracer, runCtx := startRunTracer(ctx, "sparktea turn")
+
+		run := agent.RunStream(runCtx, prompt, struct{}{}, runOpts...)
 		for event, err := range run.Events() {
 			if err != nil {
+				runTracer.end(err)
+				logLocalError("turn_failed", err, "mode", "interactive", "provider", string(option.provider), "model", option.modelID)
 				ch <- streamErrMsg{err: err}
 				return
 			}
 			switch e := event.(type) {
 			case ai.PartStartEvent:
+				runTracer.observe(e.Part)
 				switch part := e.Part.(type) {
 				case ai.TextPart:
 					if part.Content != "" {
@@ -498,14 +517,27 @@ func (m *chatModel) startStream(prompt string) tea.Cmd {
 						ch <- streamThinkingDeltaMsg(delta.ContentDelta)
 					}
 				}
+			case ai.FunctionToolCallEvent:
+				logLocal(slog.LevelInfo, "tool_started", "tool", e.Part.ToolName)
+			case ai.FunctionToolResultEvent:
+				switch part := e.Part.(type) {
+				case ai.ToolReturnPart:
+					logLocal(slog.LevelInfo, "tool_finished", "tool", part.ToolName, "outcome", "success")
+				case ai.RetryPromptPart:
+					logLocal(slog.LevelWarn, "tool_finished", "tool", part.ToolName, "outcome", "error")
+				}
 			}
 		}
+		runTracer.end(nil)
 		var messages []ai.ModelMessage
 		var usage ai.Usage
 		if result := run.Result(); result != nil {
 			messages = result.Messages()
 			usage = result.Usage()
 		}
+		args := []any{"mode", "interactive", "provider", string(option.provider), "model", option.modelID}
+		args = append(args, usageLogArgs(usage)...)
+		logLocal(slog.LevelInfo, "turn_completed", args...)
 		ch <- streamDoneMsg{messages: messages, usage: usage}
 	}()
 
