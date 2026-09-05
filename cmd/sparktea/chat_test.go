@@ -41,4 +41,11 @@ func TestFormatUsageCompact(t *testing.T) {
 	if want := "6.2k tok · $0.0412"; got != want {
 		t.Errorf("formatUsageCompact() = %q, want %q", got, want)
 	}
+
+	// Some provider adapters report tokens/cost without ever setting
+	// Requests; the header must still show up for those.
+	got = formatUsageCompact(ai.Usage{InputTokens: 10, OutputTokens: 5})
+	if want := "15 tok"; got != want {
+		t.Errorf("formatUsageCompact() with Requests unset = %q, want %q", got, want)
+	}
 }

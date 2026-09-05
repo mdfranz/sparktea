@@ -319,11 +319,13 @@ func (m *chatModel) adjustInputHeight() {
 
 // formatUsageCompact renders a short running-total for the header — total
 // tokens and, when the provider reports it, cost. Empty until the first
-// turn completes (u.Requests == 0), since View re-renders on every message
+// turn completes (u.IsZero()), since View re-renders on every message
 // anyway, this is all that's needed for the header to track sessionUsage as
-// it grows turn by turn; there's no separate timer.
+// it grows turn by turn; there's no separate timer. Gating on IsZero rather
+// than Requests specifically, since not every provider adapter populates
+// that field even when it does report tokens or cost.
 func formatUsageCompact(u ai.Usage) string {
-	if u.Requests == 0 {
+	if u.IsZero() {
 		return ""
 	}
 	s := formatCount(u.TotalTokens()) + " tok"
