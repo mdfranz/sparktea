@@ -8,11 +8,20 @@ import (
 
 	ai "github.com/Kludex/pydantic-ai-go/ai"
 	"github.com/charmbracelet/bubbles/spinner"
-	"github.com/charmbracelet/bubbles/textinput"
+	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/mdfranz/sparktea/codemode"
+)
+
+// minInputHeight/maxInputHeight bound the input textarea's row count: it
+// grows with pasted or wrapped text (so multi-line prompts stay visible) but
+// never eats the whole screen.
+const (
+	minInputHeight = 1
+	maxInputHeight = 6
 )
 
 var (
@@ -26,10 +35,32 @@ var (
 			Background(lipgloss.Color("62")).Foreground(lipgloss.Color("230"))
 )
 
-// transcriptEntry is one rendered turn in the chat viewport.
+// transcriptEntry is one turn in the chat viewport.
 type transcriptEntry struct {
 	role string // "user", "assistant", "thinking", or "system"
 	text string
+}
+
+// glamourStyle is fixed rather than auto-detected: glamour's auto-style
+// probes the terminal background over stdin/stdout, which races with
+// bubbletea's own raw-mode input reader once the program is running.
+// sparktea's existing palette (chat.go's *Style vars) already assumes a
+// dark terminal, so this matches.
+const glamourStyle = "dark"
+
+// newMarkdownRenderer builds the glamour renderer used for assistant
+// answers, word-wrapped to the current viewport width. Returns nil on error,
+// in which case renderMarkdown falls back to showing text unrendered.
+func newMarkdownRenderer(width int) *glamour.TermRenderer {
+	r, err := glamour.NewTermRenderer(
+		glamour.WithStandardStyle(glamourStyle),
+		glamour.WithWordWrap(max(width-2, 20)),
+		glamour.WithEmoji(),
+	)
+	if err != nil {
+		return nil
+	}
+	return r
 }
 
 // requestModelSwitchMsg is sent up to appModel when the user types /model,
@@ -62,10 +93,13 @@ type chatModel struct {
 	history []ai.ModelMessage
 
 	viewport viewport.Model
-	input    textinput.Model
+	input    textarea.Model
 	spinner  spinner.Model
+	md       *glamour.TermRenderer // renders assistant answers as markdown; nil disables rendering
+	mdWidth  int                   // word-wrap width m.md was built for; rebuilt on resize
 
 	transcript      []transcriptEntry
+	historyRendered string // cached, already-rendered transcript entries joined with blank lines
 	streaming       bool
 	streamCh        chan tea.Msg
 	current         strings.Builder
@@ -101,11 +135,16 @@ func newChatModel(option modelOption, width, height int) (*chatModel, tea.Cmd) {
 	agent := newAgentFor(option)
 	ctx, cancel := context.WithCancel(context.Background())
 
-	ti := textinput.New()
-	ti.Placeholder = "Ask something…"
-	ti.Prompt = "> "
-	ti.CharLimit = 4000
-	ti.Focus()
+	ta := textarea.New()
+	ta.Placeholder = "Ask something… (ctrl+j for a newline)"
+	ta.Prompt = "> "
+	ta.ShowLineNumbers = false
+	ta.CharLimit = 4000
+	ta.SetHeight(minInputHeight)
+	// Enter is handled by chatModel.Update (send) and never reaches the
+	// textarea; ctrl+j is the escape hatch for a literal newline.
+	ta.KeyMap.InsertNewline.SetKeys("ctrl+j")
+	ta.Focus()
 
 	sp := spinner.New()
 	sp.Spinner = spinner.Dot
@@ -115,26 +154,50 @@ func newChatModel(option modelOption, width, height int) (*chatModel, tea.Cmd) {
 		agent:              agent,
 		ctx:                ctx,
 		cancel:             cancel,
-		input:              ti,
+		input:              ta,
 		viewport:           viewport.New(width, max(height-5, 1)),
 		spinner:            sp,
 		codeModeCapability: codemode.New(),
 	}
 	cm.setSize(width, height)
-	return cm, textinput.Blink
+	return cm, textarea.Blink
 }
 
+// setSize applies a new terminal size, recomputing the input box's height
+// (it grows with content, up to maxInputHeight) and the viewport's height
+// around it. The markdown renderer is rebuilt to the new word-wrap width,
+// which also re-renders the whole transcript at that width.
 func (m *chatModel) setSize(width, height int) {
 	m.width, m.height = width, height
-	m.input.Width = width - 4
-	// header (1) + blank (1) + input (1) + blank (1) + help (1)
+	m.input.SetWidth(width - 4)
+
+	inputHeight := clampInputHeight(m.input.LineCount())
+	m.input.SetHeight(inputHeight)
+
+	if m.md == nil || m.mdWidth != width {
+		m.md = newMarkdownRenderer(width)
+		m.mdWidth = width
+	}
+
+	// header (1) + blank (1) + input (inputHeight) + blank (1) + help (1)
 	m.viewport.Width = width
-	m.viewport.Height = max(height-5, 1)
+	m.viewport.Height = max(height-4-inputHeight, 1)
 	m.ready = true
+	m.rebuildHistory()
 	m.refreshViewport()
 }
 
-func (m *chatModel) Init() tea.Cmd { return textinput.Blink }
+func clampInputHeight(lines int) int {
+	if lines < minInputHeight {
+		return minInputHeight
+	}
+	if lines > maxInputHeight {
+		return maxInputHeight
+	}
+	return lines
+}
+
+func (m *chatModel) Init() tea.Cmd { return textarea.Blink }
 
 func (m *chatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
@@ -150,7 +213,7 @@ func (m *chatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 		case "ctrl+d":
 			// Mirrors shell/REPL convention: quit on an empty line, otherwise
-			// let textinput's own ctrl+d binding (delete-forward) apply below.
+			// let textarea's own ctrl+d binding (delete-forward) apply below.
 			if m.input.Value() == "" {
 				m.cancel()
 				return m, tea.Quit
@@ -167,12 +230,14 @@ func (m *chatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				case prompt == "":
 				case strings.HasPrefix(prompt, "/"):
 					m.input.Reset()
+					m.adjustInputHeight()
 					if cmd := m.runCommand(prompt); cmd != nil {
 						return m, cmd
 					}
 				default:
-					m.transcript = append(m.transcript, transcriptEntry{role: "user", text: prompt})
+					m.appendEntry("user", prompt)
 					m.input.Reset()
+					m.adjustInputHeight()
 					m.streaming = true
 					m.err = nil
 					m.refreshViewport()
@@ -197,7 +262,7 @@ func (m *chatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, waitForStream(m.streamCh)
 
 	case streamNoteMsg:
-		m.transcript = append(m.transcript, transcriptEntry{role: "system", text: string(msg)})
+		m.appendEntry("system", string(msg))
 		m.refreshViewport()
 		return m, waitForStream(m.streamCh)
 
@@ -227,9 +292,29 @@ func (m *chatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	m.input, cmd = m.input.Update(msg)
 	cmds = append(cmds, cmd)
+	m.adjustInputHeight()
 	m.viewport, cmd = m.viewport.Update(msg)
 	cmds = append(cmds, cmd)
 	return m, tea.Batch(cmds...)
+}
+
+// adjustInputHeight grows or shrinks the input box to fit its content (up to
+// maxInputHeight), giving the rows it doesn't need back to the viewport.
+func (m *chatModel) adjustInputHeight() {
+	h := clampInputHeight(m.input.LineCount())
+	if h == m.input.Height() {
+		return
+	}
+	m.input.SetHeight(h)
+	// textarea.Model only re-follows the cursor at the end of its own
+	// Update; SetHeight alone leaves its internal scroll offset wherever it
+	// last was, which can hide lines that now fit in the taller box.
+	// SetValue (via Reset) is the one exported call that re-homes it, and it
+	// leaves the cursor at the end of the reinserted text — where a user
+	// growing an in-progress prompt already is.
+	m.input.SetValue(m.input.Value())
+	m.viewport.Height = max(m.height-4-h, 1)
+	m.refreshViewport()
 }
 
 func (m *chatModel) View() string {
@@ -242,7 +327,7 @@ func (m *chatModel) View() string {
 	}
 	header := headerStyle.Render(title)
 
-	status := helpStyle.Render("enter: send · /model /usage /clear /search /code /save /load · esc/ctrl+c/ctrl+d: quit")
+	status := helpStyle.Render("enter: send · ctrl+j: newline · /model /usage /clear /search /code /save /load · esc/ctrl+c/ctrl+d: quit")
 	if m.searchEnabled && m.option.supportsNativeWebSearch() {
 		status = helpStyle.Render("🔎 web search on · ") + status
 	}
@@ -263,31 +348,30 @@ func (m *chatModel) View() string {
 	)
 }
 
-// refreshViewport re-renders the full transcript (plus any in-progress
-// assistant response) into the viewport and scrolls to the bottom.
+// refreshViewport renders the viewport from the cached, already-rendered
+// history plus any in-progress assistant response, and scrolls to the
+// bottom. It does not re-render finalized entries — see appendEntry.
 func (m *chatModel) refreshViewport() {
-	var b strings.Builder
-	for i, entry := range m.transcript {
-		if i > 0 {
-			b.WriteString("\n\n")
-		}
-		writeEntry(&b, entry.role, entry.text)
-	}
+	b := m.historyRendered
 	if m.streaming {
-		if len(m.transcript) > 0 {
-			b.WriteString("\n\n")
+		if b != "" {
+			b += "\n\n"
 		}
 		if m.currentThinking.Len() > 0 {
-			writeEntry(&b, "thinking", m.currentThinking.String())
-			b.WriteString("\n\n")
+			b += renderPlainEntry("thinking", m.currentThinking.String())
+			b += "\n\n"
 		}
 		text := m.current.String()
 		if text == "" {
 			text = "…"
 		}
-		writeEntry(&b, "assistant", text)
+		// Streamed text renders raw rather than through glamour: markdown is
+		// usually invalid mid-stream (an unclosed code fence, a half-written
+		// link), and re-parsing it on every token would be wasted work.
+		// renderEntry takes over once the turn lands in history.
+		b += renderPlainEntry("assistant", text)
 	}
-	m.viewport.SetContent(b.String())
+	m.viewport.SetContent(b)
 	m.viewport.GotoBottom()
 }
 
@@ -295,14 +379,75 @@ func (m *chatModel) refreshViewport() {
 // transcript and re-renders. Called when a stream ends, successfully or not.
 func (m *chatModel) flushCurrentTurn() {
 	if m.currentThinking.Len() > 0 {
-		m.transcript = append(m.transcript, transcriptEntry{role: "thinking", text: m.currentThinking.String()})
+		m.appendEntry("thinking", m.currentThinking.String())
 		m.currentThinking.Reset()
 	}
 	if m.current.Len() > 0 {
-		m.transcript = append(m.transcript, transcriptEntry{role: "assistant", text: m.current.String()})
+		m.appendEntry("assistant", m.current.String())
 		m.current.Reset()
 	}
 	m.refreshViewport()
+}
+
+// appendEntry adds a finalized entry to the transcript and renders it once,
+// appending the result to historyRendered rather than re-rendering the
+// whole transcript on every refreshViewport call (which matters once
+// rendering means running glamour over markdown, not just concatenation).
+func (m *chatModel) appendEntry(role, text string) {
+	e := transcriptEntry{role: role, text: text}
+	m.transcript = append(m.transcript, e)
+	if m.historyRendered != "" {
+		m.historyRendered += "\n\n"
+	}
+	m.historyRendered += m.renderEntry(e)
+}
+
+// rebuildHistory re-renders every transcript entry from scratch. Needed
+// after a resize, since the word-wrap width baked into m.md changes, and
+// after a wholesale transcript replacement (/load), where appendEntry's
+// incremental cache doesn't apply.
+func (m *chatModel) rebuildHistory() {
+	var b strings.Builder
+	for i, e := range m.transcript {
+		if i > 0 {
+			b.WriteString("\n\n")
+		}
+		b.WriteString(m.renderEntry(e))
+	}
+	m.historyRendered = b.String()
+}
+
+// renderEntry renders one finalized transcript entry for display. Assistant
+// answers go through glamour for markdown formatting; every other role
+// renders as plain styled text.
+func (m *chatModel) renderEntry(e transcriptEntry) string {
+	if e.role != "assistant" {
+		return renderPlainEntry(e.role, e.text)
+	}
+	var b strings.Builder
+	b.WriteString(assistantStyle.Render("Assistant"))
+	b.WriteString("\n")
+	b.WriteString(m.renderMarkdown(e.text))
+	return b.String()
+}
+
+// renderMarkdown renders text through glamour, falling back to the raw text
+// if the renderer isn't available (construction failed) or errors.
+func (m *chatModel) renderMarkdown(text string) string {
+	if m.md == nil {
+		return text
+	}
+	out, err := m.md.Render(text)
+	if err != nil {
+		return text
+	}
+	return strings.TrimSpace(out)
+}
+
+func renderPlainEntry(role, text string) string {
+	var b strings.Builder
+	writeEntry(&b, role, text)
+	return b.String()
 }
 
 func writeEntry(b *strings.Builder, role, text string) {
@@ -327,7 +472,7 @@ func writeEntry(b *strings.Builder, role, text string) {
 // note appends a system-styled line to the transcript, e.g. for command
 // output, and re-renders.
 func (m *chatModel) note(text string) {
-	m.transcript = append(m.transcript, transcriptEntry{role: "system", text: text})
+	m.appendEntry("system", text)
 	m.refreshViewport()
 }
 
@@ -369,6 +514,7 @@ func (m *chatModel) runCommand(line string) tea.Cmd {
 	case "/clear":
 		m.history = nil
 		m.transcript = nil
+		m.historyRendered = ""
 		m.sessionUsage = ai.Usage{}
 		m.err = nil
 		m.note("History cleared.")
@@ -428,6 +574,7 @@ func (m *chatModel) runCommand(line string) tea.Cmd {
 		}
 		m.history = messages
 		m.transcript = transcriptFromMessages(messages)
+		m.rebuildHistory()
 		m.sessionUsage = ai.Usage{}
 		m.err = nil
 		m.note("loaded session from " + path)

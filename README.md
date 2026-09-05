@@ -7,7 +7,11 @@ more just an import away.
 
 Launch it, pick a model, and chat. Responses stream in token-by-token,
 thinking traces render when a model exposes them, and conversation history
-survives switching models — even across providers — mid-chat.
+survives switching models — even across providers — mid-chat. Finished
+answers render as markdown (headers, lists, syntax-highlighted code) via
+[glamour](https://github.com/charmbracelet/glamour); the input box is a
+multi-line [textarea](https://github.com/charmbracelet/bubbles) that grows
+with pasted or wrapped text.
 
 ## Built on pydantic-ai-go
 
@@ -62,9 +66,13 @@ make clean    # removes ./sparktea
 ## Usage
 
 - `↑`/`↓` (or `j`/`k`) to move through the model list, `enter` to select.
-- Type a message, `enter` to send. Reasoning models' thinking traces render
-  dimmed above the answer when the provider exposes them.
-- `esc`, `ctrl+c`, or `ctrl+d` (on an empty input line) to quit.
+- Type a message, `enter` to send; `ctrl+j` inserts a newline for
+  multi-line/pasted prompts (the input box grows with the text, up to 6
+  lines). Reasoning models' thinking traces render dimmed above the answer
+  when the provider exposes them; finished answers render as markdown.
+- `esc`, `ctrl+c`, or `ctrl+d` (on an empty input line) to quit. Mouse-wheel
+  scrolling works in the transcript, at the cost of the terminal's own
+  click-drag text selection while sparktea is running.
 
 ### Commands
 
