@@ -121,7 +121,13 @@ sparktea -model anthropic:claude-haiku-4-5-20251001 -code \
 paths always run; a live prompt and a live Code Mode `run_code` call run too
 if at least one provider API key is set (skipped otherwise). Set
 `SPARKTEA_TEST_LIVE=0` to skip the live checks even with a key present, or
-`SPARKTEA_TEST_MODEL=provider:model_id` to pin which model they use.
+`SPARKTEA_TEST_MODEL=provider:model_id` to pin which model they use. Set
+`SPARKTEA_TEST_ALL_MODELS=1` to additionally send one cheap live prompt to
+*every* catalog entry whose provider key is present — the only way to catch
+a modelID a provider itself rejects (a stale OpenRouter slug, a model a
+provider deprecated), as opposed to a bug in sparktea's own request
+building. Off by default since it's one call per catalog entry rather than
+one per provider, so it's the slowest and priciest check here.
 
 ## Local logs
 

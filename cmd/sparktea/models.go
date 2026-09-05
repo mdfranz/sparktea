@@ -40,7 +40,7 @@ func (m modelOption) FilterValue() string { return m.label }
 // support more OpenRouter, Gemini, Anthropic, or Mistral model IDs.
 var modelCatalog = []modelOption{
 	{"DeepSeek V4 Flash (latest)", providerOpenRouter, "~deepseek/deepseek-v4-flash-latest"},
-	{"DeepSeek V4 Pro (latest)", providerOpenRouter, "~deepseek/deepseek-v4-pro-latest"},
+	{"DeepSeek V4 Pro", providerOpenRouter, "deepseek/deepseek-v4-pro"},
 	{"Kimi (latest)", providerOpenRouter, "~moonshotai/kimi-latest"},
 	{"Qwen 3.8 Flash", providerOpenRouter, "qwen/qwen3.8-flash"},
 	{"GLM Flash (latest)", providerOpenRouter, "~z-ai/glm-flash-latest"},
@@ -49,7 +49,7 @@ var modelCatalog = []modelOption{
 	{"Llama 4 Maverick", providerOpenRouter, "meta-llama/llama-4-maverick"},
 	{"Gemini 3.8 Flash", providerGoogle, "gemini-3.8-flash"},
 	{"Gemini 2.5 Pro", providerGoogle, "gemini-2.5-pro"},
-	{"Gemini 2.0 Flash", providerGoogle, "gemini-2.0-flash"},
+	{"Gemini 3.6 Flash", providerGoogle, "gemini-3.6-flash"},
 	{"Claude Opus 5", providerAnthropic, "claude-opus-5"},
 	{"Claude Sonnet 5", providerAnthropic, "claude-sonnet-5"},
 	{"Claude Haiku 4.5", providerAnthropic, "claude-haiku-4-5-20251001"},
