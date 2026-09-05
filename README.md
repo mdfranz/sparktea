@@ -18,16 +18,7 @@ idiomatic port of [PydanticAI](https://ai.pydantic.dev/) by
 everything sparktea does is pydantic-ai-go doing the real work; this repo
 just wires it up to a terminal:
 
-| sparktea feature | pydantic-ai-go piece behind it |
-| --- | --- |
-| The whole chat loop, streamed token-by-token | `ai.Agent`, `Agent.RunStream`, `PartStartEvent`/`PartDeltaEvent` |
-| Every model provider (OpenRouter, Gemini, and a one-line swap away from OpenAI, Anthropic, Bedrock, Groq, Mistral, xAI, and more) | `ai/models/*` provider adapters |
-| Cross-provider history when you `/model` mid-conversation | `ai.ModelMessage`, `ai.WithMessageHistory` — a provider-neutral message format |
-| `/search` web grounding (on providers whose adapter implements native-tool support) | `ai.WebSearchTool` / `ai.WithRunNativeTools` |
-| Thinking traces rendered above the answer | `ai.ThinkingPart` / `ai.ThinkingPartDelta` |
-| `/save` and `/load` | `ai.MarshalMessages` / `ai.UnmarshalMessages` |
-| `/usage` totals, including cost | `ai.Usage` and its `genai-prices` integration |
-| Logfire tracing | `ai.NewInstrumentation`, pydantic-ai-go's OpenTelemetry capability |
+
 
 pydantic-ai-go is MIT-licensed and under active development, with a much
 larger surface than sparktea touches — tool calling, structured output,
@@ -46,7 +37,7 @@ export OPENROUTER_API_KEY="sk-or-..."
 export GEMINI_API_KEY="..."   # or GOOGLE_API_KEY
 export ANTHROPIC_API_KEY="sk-ant-..."
 export MISTRAL_API_KEY="..."
-go run .
+go run ./cmd/sparktea
 ```
 
 Keys:
@@ -57,7 +48,7 @@ Keys:
 
 ## Building
 
-`go run .` is fine for iterating, but a `Makefile` is included for a real
+`go run ./cmd/sparktea` is fine for iterating, but a `Makefile` is included for a real
 binary:
 
 ```console
@@ -85,8 +76,42 @@ Type these instead of a message:
 | `/usage` | Show session totals: requests, input/output tokens, tool calls, cost. |
 | `/clear` | Discard history and usage totals; start fresh without restarting. |
 | `/search` (or `/search on`/`off`) | Toggle native web search grounding (`ai.WebSearchTool`) for models that support it. OpenRouter, Gemini, and Anthropic models pick it up (or silently skip it if the underlying model doesn't do web search); Mistral's adapter doesn't implement pydantic-ai-go's native-tool interface at all, so sparktea leaves the tool out of the request entirely rather than send something the transport would reject — `/search on` on a Mistral model just notes that it's a no-op. |
+| `/code` (or `/code on`/`off`) | Toggle Code Mode: gives the model a `run_code` tool that executes Python in a sandbox. Off by default. See "Code Mode" below. |
 | `/save [name]` | Write the conversation to `~/.sparktea/sessions/<name>.json` (default name `default`). |
 | `/load [name]` | Restore a saved conversation, replaying its transcript and history. |
+
+## Scripting (non-interactive mode)
+
+Pass `-prompt` to run a single turn to completion and exit, skipping the
+TUI — useful for testing (Code Mode especially) without hand-typing into
+the chat screen:
+
+```console
+sparktea -list-models
+sparktea -model anthropic:claude-haiku-4-5-20251001 -code \
+  -prompt "Use run_code to compute the 20th Fibonacci number."
+```
+
+- `-model` takes a model ID (e.g. `claude-haiku-4-5-20251001`), not the
+  display label — `-list-models` prints available options as
+  `provider:model_id` (tab-separated from the label). A bare model ID or an
+  unambiguous substring works too; use the `provider:model_id` form to pin
+  one exactly when a bare ID could match more than one provider's catalog
+  entry (a real possibility as more providers are added — model IDs aren't
+  unique across them). Omitted, `-model` defaults to the first available
+  model.
+- `-code` / `-search` enable Code Mode / native web search for that one run,
+  same as `/code` and `/search` in the TUI.
+- The model's answer streams to stdout; thinking, tool calls (including the
+  exact `run_code` argument and result), and a final usage line go to
+  stderr — redirect it away (`2>/dev/null`) for just the answer, or capture
+  it separately to see what a script actually ran.
+
+`./test_sparktea.sh` exercises this CLI end to end: flag parsing and error
+paths always run; a live prompt and a live Code Mode `run_code` call run too
+if at least one provider API key is set (skipped otherwise). Set
+`SPARKTEA_TEST_LIVE=0` to skip the live checks even with a key present, or
+`SPARKTEA_TEST_MODEL=provider:model_id` to pin which model they use.
 
 ## Observability (Logfire)
 
@@ -97,7 +122,7 @@ trace per turn:
 
 ```console
 export LOGFIRE_TOKEN="your-write-token"
-go run .
+go run ./cmd/sparktea
 ```
 
 That's it — no other env vars needed. By default it targets Logfire's US
@@ -112,6 +137,57 @@ you trust the destination project with conversation content.
 
 Without `LOGFIRE_TOKEN` set, none of this runs — no OTel providers are
 installed and agents behave exactly as before.
+
+## Code Mode
+
+`/code` (default off) gives the model a single `run_code` tool: it writes
+Python, sparktea runs it, the model gets the result back. This is
+[**Monty**](https://github.com/pydantic/monty), a sandboxed Python
+interpreter written in Rust, via its Go bindings,
+[**gomonty**](https://github.com/ewhauser/gomonty) — no Docker, no
+subprocess, a few milliseconds to start.
+
+Sandboxing guarantees:
+- No filesystem, network, or environment access. `os` and `pathlib` import
+  fine, but any real OS call (`os.getenv`, `Path.exists`, file I/O, ...)
+  raises `NotImplementedError` — there's nothing to touch.
+- Only part of the stdlib exists, each module covering a slice of CPython's
+  surface: `sys`, `typing`, `math`, `json`, `re`, `unicodedata`, `datetime`,
+  `pathlib`, `os`, `collections`, `itertools`, `functools`, `dataclasses`,
+  `asyncio`, `base64`, `binascii`. No third-party imports. Notably **not**
+  available: `statistics`, `random`, `time`, `enum`, `copy`, `string`, `io`,
+  `struct`, `hashlib`, `uuid`, and anything network/process/thread-related
+  (`urllib`, `socket`, `subprocess`, `threading`).
+- Also unsupported: class inheritance, `@classmethod`/`@staticmethod`/
+  `@property`, user-defined exception classes, `eval`/`exec`, `yield`.
+  `%`-style string formatting (`"%.2f" % x`) fails — f-strings and
+  `.format()` both work.
+- Each run is capped at 5 seconds wall-clock, 64 MiB memory, and 100 stack
+  frames of recursion, so a runaway script can't stall the TUI.
+
+(`codemode/codemode_test.go` pins the module/formatting behavior above down
+as regression tests against the exact pinned Monty commit, rather than
+trusting [Monty's own limitations doc](https://pydantic.dev/docs/monty/limitations/)
+blindly — that page and this pin already disagree on one point: `.format()`
+works here even though the doc says it doesn't.)
+
+The last expression's value comes back automatically (no `print()` needed);
+`print()` output is captured too. A syntax error, a runtime exception, or a
+resource-limit violation comes back to the model as a bounded retry prompt
+(`*ai.RetryError`, capped at 20 cumulative failures for the run) rather than
+a hard failure, so it can see what went wrong and retry with corrected
+code — without a broken-code loop running forever.
+
+**Current limitation**: the sandbox is self-contained — the model can't yet
+call sparktea's own tools (e.g. web search) as functions from inside a
+script. That's a natural next step once sparktea has more tools worth
+composing; it needs no rework of the current implementation.
+
+sparktea depends on a personal fork of gomonty
+(`github.com/mdfranz/gomonty`), pinned via a `go.mod` `replace` directive,
+to carry Monty-version-refresh work ahead of upstream releasing it — see
+`MONTY-PLAN.md` for the details and the risk that comes with it (native
+libraries are currently only rebuilt/verified for macOS arm64).
 
 ## Adding models
 

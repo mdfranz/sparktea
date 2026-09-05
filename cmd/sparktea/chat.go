@@ -11,6 +11,7 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/mdfranz/sparktea/codemode"
 )
 
 var (
@@ -72,6 +73,9 @@ type chatModel struct {
 	sessionUsage  ai.Usage
 	searchEnabled bool
 
+	codeEnabled        bool
+	codeModeCapability *codemode.CodeMode
+
 	err           error
 	width, height int
 	ready         bool
@@ -106,13 +110,14 @@ func newChatModel(option modelOption, width, height int) (*chatModel, tea.Cmd) {
 	sp.Spinner = spinner.Dot
 
 	cm := &chatModel{
-		option:   option,
-		agent:    agent,
-		ctx:      ctx,
-		cancel:   cancel,
-		input:    ti,
-		viewport: viewport.New(width, max(height-5, 1)),
-		spinner:  sp,
+		option:             option,
+		agent:              agent,
+		ctx:                ctx,
+		cancel:             cancel,
+		input:              ti,
+		viewport:           viewport.New(width, max(height-5, 1)),
+		spinner:            sp,
+		codeModeCapability: codemode.New(),
 	}
 	cm.setSize(width, height)
 	return cm, textinput.Blink
@@ -236,9 +241,12 @@ func (m *chatModel) View() string {
 	}
 	header := headerStyle.Render(title)
 
-	status := helpStyle.Render("enter: send · /model /usage /clear /search /save /load · esc/ctrl+c/ctrl+d: quit")
+	status := helpStyle.Render("enter: send · /model /usage /clear /search /code /save /load · esc/ctrl+c/ctrl+d: quit")
 	if m.searchEnabled && m.option.supportsNativeWebSearch() {
 		status = helpStyle.Render("🔎 web search on · ") + status
+	}
+	if m.codeEnabled {
+		status = helpStyle.Render("🐍 code mode on · ") + status
 	}
 	if m.streaming {
 		status = fmt.Sprintf("%s thinking…", m.spinner.View())
@@ -381,6 +389,21 @@ func (m *chatModel) runCommand(line string) tea.Cmd {
 		}
 		m.note("web search: " + state)
 
+	case "/code":
+		switch strings.ToLower(arg) {
+		case "on":
+			m.codeEnabled = true
+		case "off":
+			m.codeEnabled = false
+		default:
+			m.codeEnabled = !m.codeEnabled
+		}
+		state := "off"
+		if m.codeEnabled {
+			state = "on"
+		}
+		m.note("code mode: " + state)
+
 	case "/save":
 		path, err := writeSessionFile(arg, m.history)
 		if err != nil {
@@ -435,6 +458,9 @@ func (m *chatModel) startStream(prompt string) tea.Cmd {
 		// before the provider ever gets a chance to ignore it.
 		runOpts = append(runOpts, ai.WithRunNativeTools(ai.WebSearchTool{Optional: true}))
 	}
+	if m.codeEnabled {
+		runOpts = append(runOpts, ai.WithRunCapabilities(m.codeModeCapability))
+	}
 
 	go func() {
 		run := agent.RunStream(ctx, prompt, struct{}{}, runOpts...)
@@ -456,6 +482,10 @@ func (m *chatModel) startStream(prompt string) tea.Cmd {
 					}
 				case ai.NativeToolCallPart:
 					ch <- streamNoteMsg("🔎 " + part.ToolName)
+				case ai.ToolCallPart:
+					if part.ToolName == codemode.ToolName {
+						ch <- streamNoteMsg("🐍 " + part.ToolName)
+					}
 				}
 			case ai.PartDeltaEvent:
 				switch delta := e.Delta.(type) {
