@@ -22,7 +22,7 @@ func sessionsDir() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(home, ".openrouter-agent", "sessions"), nil
+	return filepath.Join(home, ".sparktea", "sessions"), nil
 }
 
 func sessionPath(name string) (string, error) {

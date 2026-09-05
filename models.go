@@ -63,7 +63,7 @@ func (m modelOption) newModel() ai.Model {
 	case providerGoogle:
 		return google.NewModel(m.modelID)
 	default:
-		panic("openrouter-agent: unknown provider " + string(m.provider))
+		panic("sparktea: unknown provider " + string(m.provider))
 	}
 }
 

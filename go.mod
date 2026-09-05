@@ -1,4 +1,4 @@
-module github.com/mdfranz/openrouter-agent
+module github.com/mdfranz/sparktea
 
 go 1.27.0
 

@@ -59,7 +59,7 @@ func initLogfire(ctx context.Context) (shutdown func(context.Context) error, err
 
 	serviceName := os.Getenv("OTEL_SERVICE_NAME")
 	if serviceName == "" {
-		serviceName = "openrouter-agent"
+		serviceName = "sparktea"
 	}
 	res, err := resource.Merge(resource.Default(), resource.NewSchemaless(
 		semconv.ServiceNameKey.String(serviceName),

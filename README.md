@@ -1,4 +1,4 @@
-# openrouter-agent
+# sparktea
 
 A [bubbletea](https://github.com/charmbracelet/bubbletea) chat TUI built on
 [pydantic-ai-go](https://github.com/Kludex/pydantic-ai-go), supporting
@@ -39,7 +39,7 @@ Type these instead of a message:
 | `/usage` | Show session totals: requests, input/output tokens, tool calls, cost. |
 | `/clear` | Discard history and usage totals; start fresh without restarting. |
 | `/search` (or `/search on`/`off`) | Toggle native web search grounding (`ai.WebSearchTool`) for models that support it. Unsupported models just ignore it. |
-| `/save [name]` | Write the conversation to `~/.openrouter-agent/sessions/<name>.json` (default name `default`). |
+| `/save [name]` | Write the conversation to `~/.sparktea/sessions/<name>.json` (default name `default`). |
 | `/load [name]` | Restore a saved conversation, replaying its transcript and history. |
 
 ## Observability (Logfire)
@@ -56,7 +56,7 @@ go run .
 That's it — no other env vars needed. By default it targets Logfire's US
 region (`logfire-us.pydantic.dev`); set `LOGFIRE_ENDPOINT` for the EU region
 or a self-hosted collector. `OTEL_SERVICE_NAME` overrides the reported
-service name (default `openrouter-agent`).
+service name (default `sparktea`).
 
 Prompts, completions, and full request parameters are **not** sent by
 default, since this telemetry leaves your machine — only trace structure,

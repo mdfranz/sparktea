@@ -85,7 +85,7 @@ func newAgentFor(option modelOption) *ai.Agent[struct{}, string] {
 	}
 	if logfireCapability != nil {
 		opts = append(opts,
-			ai.WithAgentName("openrouter-agent"),
+			ai.WithAgentName("sparktea"),
 			ai.WithCapabilities(logfireCapability),
 		)
 	}
@@ -230,7 +230,7 @@ func (m *chatModel) View() string {
 	if !m.ready {
 		return "initializing…"
 	}
-	title := fmt.Sprintf("openrouter-agent · %s", m.option.label)
+	title := fmt.Sprintf("sparktea · %s", m.option.label)
 	if logfireCapability != nil {
 		title += " · 🔭 logfire"
 	}
