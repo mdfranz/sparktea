@@ -67,7 +67,7 @@ func run() (exitCode int) {
 		logLocalError("logfire_initialization_failed", err)
 		fmt.Fprintln(os.Stderr, "sparktea: logfire disabled:", err)
 	} else if logfireCapability != nil {
-		logLocal(slog.LevelInfo, "logfire_enabled", "endpoint", logfireEndpoint())
+		logLocal(slog.LevelInfo, "logfire_enabled")
 		fmt.Fprintln(os.Stderr, "sparktea: sending traces to Logfire ("+logfireEndpoint()+")")
 	} else {
 		logLocal(slog.LevelInfo, "logfire_disabled")
