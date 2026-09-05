@@ -46,7 +46,7 @@ export OPENROUTER_API_KEY="sk-or-..."
 export GEMINI_API_KEY="..."   # or GOOGLE_API_KEY
 export ANTHROPIC_API_KEY="sk-ant-..."
 export MISTRAL_API_KEY="..."
-go run .
+go run ./cmd/sparktea
 ```
 
 Keys:
@@ -57,7 +57,7 @@ Keys:
 
 ## Building
 
-`go run .` is fine for iterating, but a `Makefile` is included for a real
+`go run ./cmd/sparktea` is fine for iterating, but a `Makefile` is included for a real
 binary:
 
 ```console
@@ -97,7 +97,7 @@ trace per turn:
 
 ```console
 export LOGFIRE_TOKEN="your-write-token"
-go run .
+go run ./cmd/sparktea
 ```
 
 That's it — no other env vars needed. By default it targets Logfire's US
