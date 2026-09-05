@@ -37,7 +37,7 @@ func run() int {
 
 	if opts.listModels {
 		for _, m := range options {
-			fmt.Printf("%s\t%s\t%s\n", m.modelID, m.provider, m.label)
+			fmt.Printf("%s:%s\t%s\n", m.provider, m.modelID, m.label)
 		}
 		return 0
 	}

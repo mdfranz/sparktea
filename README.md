@@ -88,15 +88,18 @@ the chat screen:
 
 ```console
 sparktea -list-models
-sparktea -model claude-haiku-4-5-20251001 -code \
+sparktea -model anthropic:claude-haiku-4-5-20251001 -code \
   -prompt "Use run_code to compute the 20th Fibonacci number."
 ```
 
-- `-model` takes a model ID (e.g. `claude-haiku-4-5-20251001`,
-  `~deepseek/deepseek-v4-flash-latest`), not the display label — `-list-models`
-  prints available IDs (tab-separated: id, provider, label). Omitted, it
-  defaults to the first available model. A substring also works as long as
-  it's unambiguous.
+- `-model` takes a model ID (e.g. `claude-haiku-4-5-20251001`), not the
+  display label — `-list-models` prints available options as
+  `provider:model_id` (tab-separated from the label). A bare model ID or an
+  unambiguous substring works too; use the `provider:model_id` form to pin
+  one exactly when a bare ID could match more than one provider's catalog
+  entry (a real possibility as more providers are added — model IDs aren't
+  unique across them). Omitted, `-model` defaults to the first available
+  model.
 - `-code` / `-search` enable Code Mode / native web search for that one run,
   same as `/code` and `/search` in the TUI.
 - The model's answer streams to stdout; thinking, tool calls (including the
