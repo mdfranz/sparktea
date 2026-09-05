@@ -77,6 +77,7 @@ type (
 	streamDoneMsg          struct {
 		messages []ai.ModelMessage
 		usage    ai.Usage
+		sources  string // formatted "🔗 Sources:" note, or "" if the turn cited none
 	}
 	streamErrMsg struct{ err error }
 )
@@ -273,6 +274,9 @@ func (m *chatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.sessionUsage.Add(msg.usage)
 		m.flushCurrentTurn()
+		if msg.sources != "" {
+			m.note(msg.sources)
+		}
 		return m, nil
 
 	case streamErrMsg:
@@ -475,6 +479,122 @@ func (m *chatModel) renderMarkdown(text string) string {
 		return text
 	}
 	return strings.TrimSpace(out)
+}
+
+// webSearchResult is one normalized search hit pulled from a provider's raw
+// web-search result data, so sparktea can show sources for an answer that
+// providers ground on searched pages without necessarily citing inline.
+type webSearchResult struct {
+	title string
+	url   string
+}
+
+// extractWebSearchResults normalizes web-search result/citation data across
+// the different shapes sparktea's search-capable providers actually use:
+//   - Google (Gemini): a []map[string]any built from groundingChunks[].web,
+//     keyed "uri"/"title".
+//   - Anthropic: a json-decoded []any of web_search_result blocks, keyed
+//     "url"/"title".
+//   - OpenRouter (OpenAI-compatible chat completions): a []map[string]any of
+//     annotations, each wrapping its fields one level deeper under
+//     "url_citation" — OpenAI's own citation format, which OpenRouter passes
+//     through.
+//
+// Anything that doesn't match one of these shapes is skipped rather than
+// guessed at.
+func extractWebSearchResults(value any) []webSearchResult {
+	var items []any
+	switch v := value.(type) {
+	case []map[string]any:
+		for _, m := range v {
+			items = append(items, m)
+		}
+	case []any:
+		items = v
+	default:
+		return nil
+	}
+
+	var out []webSearchResult
+	for _, item := range items {
+		m, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		if nested, ok := m["url_citation"].(map[string]any); ok {
+			m = nested
+		}
+		url, _ := firstString(m, "url", "uri")
+		if url == "" {
+			continue
+		}
+		title, _ := firstString(m, "title", "name")
+		if title == "" {
+			title = url
+		}
+		out = append(out, webSearchResult{title: title, url: url})
+	}
+	return out
+}
+
+func firstString(m map[string]any, keys ...string) (string, bool) {
+	for _, k := range keys {
+		if s, ok := m[k].(string); ok && s != "" {
+			return s, true
+		}
+	}
+	return "", false
+}
+
+// collectWebSearchSources scans the ModelResponse messages one turn added —
+// i.e. after[len(before):] — for web-search results, wherever the provider
+// adapter put them (see extractWebSearchResults), and returns a
+// deduplicated, formatted "🔗 Sources:" note, or "" if the turn cited none.
+func collectWebSearchSources(before, after []ai.ModelMessage) string {
+	if len(after) <= len(before) {
+		return ""
+	}
+	var results []webSearchResult
+	seen := map[string]bool{}
+	add := func(rs []webSearchResult) {
+		for _, r := range rs {
+			if seen[r.url] {
+				continue
+			}
+			seen[r.url] = true
+			results = append(results, r)
+		}
+	}
+	for _, msg := range after[len(before):] {
+		resp, ok := msg.(ai.ModelResponse)
+		if !ok {
+			continue
+		}
+		for _, part := range resp.Parts {
+			ret, ok := part.(ai.NativeToolReturnPart)
+			if !ok || ret.ToolKind != ai.ToolPartKindWebSearch {
+				continue
+			}
+			add(extractWebSearchResults(ret.Content))
+		}
+		if annotations, ok := resp.ProviderDetails["annotations"]; ok {
+			add(extractWebSearchResults(annotations))
+		}
+	}
+	if len(results) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("🔗 Sources:")
+	for _, r := range results {
+		b.WriteString("\n  · ")
+		if r.title != r.url {
+			b.WriteString(r.title)
+			b.WriteString(" — ")
+		}
+		b.WriteString(r.url)
+	}
+	return b.String()
 }
 
 func renderPlainEntry(role, text string) string {
@@ -711,14 +831,16 @@ func (m *chatModel) startStream(prompt string) tea.Cmd {
 		runTracer.end(nil)
 		var messages []ai.ModelMessage
 		var usage ai.Usage
+		var sources string
 		if result := run.Result(); result != nil {
 			messages = result.Messages()
 			usage = result.Usage()
+			sources = collectWebSearchSources(history, messages)
 		}
 		args := []any{"mode", "interactive", "provider", string(option.provider), "model", option.modelID}
 		args = append(args, usageLogArgs(usage)...)
 		logLocal(slog.LevelInfo, "turn_completed", args...)
-		ch <- streamDoneMsg{messages: messages, usage: usage}
+		ch <- streamDoneMsg{messages: messages, usage: usage, sources: sources}
 	}()
 
 	return func() tea.Msg {

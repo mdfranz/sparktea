@@ -71,3 +71,94 @@ func TestHeaderShowsUsageAfterCompletedTurn(t *testing.T) {
 		t.Errorf("View() after streamDoneMsg should show the usage total, got:\n%s", got)
 	}
 }
+
+func TestExtractWebSearchResults(t *testing.T) {
+	// Google (Gemini): groundingChunks[].web, keyed "uri"/"title".
+	google := []map[string]any{
+		{"uri": "https://example.com/a", "title": "Example A"},
+	}
+	if got := extractWebSearchResults(google); len(got) != 1 || got[0].url != "https://example.com/a" || got[0].title != "Example A" {
+		t.Errorf("Google shape: got %+v", got)
+	}
+
+	// Anthropic: a json-decoded []any of web_search_result blocks, keyed
+	// "url"/"title" — decoding a JSON array into `any` always yields []any
+	// of map[string]any, never []map[string]any directly.
+	anthropic := []any{
+		map[string]any{"type": "web_search_result", "url": "https://example.com/b", "title": "Example B"},
+	}
+	if got := extractWebSearchResults(anthropic); len(got) != 1 || got[0].url != "https://example.com/b" || got[0].title != "Example B" {
+		t.Errorf("Anthropic shape: got %+v", got)
+	}
+
+	// OpenRouter/OpenAI chat completions: annotations nested one level
+	// deeper under "url_citation".
+	openrouter := []map[string]any{
+		{"type": "url_citation", "url_citation": map[string]any{"url": "https://example.com/c", "title": "Example C"}},
+	}
+	if got := extractWebSearchResults(openrouter); len(got) != 1 || got[0].url != "https://example.com/c" || got[0].title != "Example C" {
+		t.Errorf("OpenRouter shape: got %+v", got)
+	}
+
+	// A result with no url is skipped rather than shown blank.
+	if got := extractWebSearchResults([]map[string]any{{"title": "no url here"}}); len(got) != 0 {
+		t.Errorf("entries without a url should be skipped, got %+v", got)
+	}
+
+	// Missing title falls back to the url itself.
+	if got := extractWebSearchResults([]map[string]any{{"uri": "https://example.com/d"}}); len(got) != 1 || got[0].title != "https://example.com/d" {
+		t.Errorf("missing title should fall back to the url, got %+v", got)
+	}
+
+	// Shapes that don't match any provider's format are skipped, not guessed at.
+	if got := extractWebSearchResults("not a list"); got != nil {
+		t.Errorf("unrecognized shape should yield nil, got %+v", got)
+	}
+}
+
+func TestCollectWebSearchSources(t *testing.T) {
+	before := []ai.ModelMessage{ai.ModelRequest{}}
+
+	t.Run("no new messages", func(t *testing.T) {
+		if got := collectWebSearchSources(before, before); got != "" {
+			t.Errorf("no new messages should yield no sources, got %q", got)
+		}
+	})
+
+	t.Run("Google NativeToolReturnPart", func(t *testing.T) {
+		after := append(before, ai.ModelResponse{
+			Parts: []ai.ResponsePart{
+				ai.NativeToolReturnPart{
+					ToolName: "web_search", ToolKind: ai.ToolPartKindWebSearch,
+					Content: []map[string]any{{"uri": "https://example.com/a", "title": "Example A"}},
+				},
+			},
+		})
+		got := collectWebSearchSources(before, after)
+		if want := "🔗 Sources:\n  · Example A — https://example.com/a"; got != want {
+			t.Errorf("collectWebSearchSources() = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("OpenRouter annotations, deduplicated", func(t *testing.T) {
+		after := append(before, ai.ModelResponse{
+			ProviderDetails: map[string]any{
+				"annotations": []map[string]any{
+					{"url_citation": map[string]any{"url": "https://example.com/b", "title": "Example B"}},
+					{"url_citation": map[string]any{"url": "https://example.com/b", "title": "Example B"}},
+				},
+			},
+		})
+		got := collectWebSearchSources(before, after)
+		if want := "🔗 Sources:\n  · Example B — https://example.com/b"; got != want {
+			t.Errorf("duplicate urls should collapse to one entry, got %q, want %q", got, want)
+		}
+	})
+
+	t.Run("no search results", func(t *testing.T) {
+		after := append(before, ai.ModelResponse{Parts: []ai.ResponsePart{ai.TextPart{Content: "hello"}}})
+		if got := collectWebSearchSources(before, after); got != "" {
+			t.Errorf("a turn with no search results should yield no sources, got %q", got)
+		}
+	})
+}
