@@ -29,6 +29,9 @@ func newPickerModel(options []modelOption) pickerModel {
 		items[i] = o
 	}
 	delegate := list.NewDefaultDelegate()
+	// No blank line between entries: the catalog spans several providers
+	// now, so keep the list compact rather than one screenful per model.
+	delegate.SetSpacing(0)
 	l := list.New(items, delegate, 0, 0)
 	l.Title = "Select a model"
 	l.Styles.Title = pickerTitleStyle

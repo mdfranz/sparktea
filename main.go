@@ -21,7 +21,7 @@ func run() int {
 	options := availableModels()
 	if len(options) == 0 {
 		fmt.Fprintln(os.Stderr, "sparktea: no API keys found.")
-		fmt.Fprintln(os.Stderr, "Set OPENROUTER_API_KEY for OpenRouter models and/or GEMINI_API_KEY (or GOOGLE_API_KEY) for Gemini models.")
+		fmt.Fprintln(os.Stderr, "Set OPENROUTER_API_KEY, GEMINI_API_KEY (or GOOGLE_API_KEY), ANTHROPIC_API_KEY, and/or MISTRAL_API_KEY.")
 		return 1
 	}
 
