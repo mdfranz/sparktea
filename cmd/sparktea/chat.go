@@ -463,14 +463,18 @@ func (m *chatModel) startStream(prompt string) tea.Cmd {
 	}
 
 	go func() {
-		run := agent.RunStream(ctx, prompt, struct{}{}, runOpts...)
+		runTracer, runCtx := startRunTracer(ctx, "sparktea turn")
+
+		run := agent.RunStream(runCtx, prompt, struct{}{}, runOpts...)
 		for event, err := range run.Events() {
 			if err != nil {
+				runTracer.end(err)
 				ch <- streamErrMsg{err: err}
 				return
 			}
 			switch e := event.(type) {
 			case ai.PartStartEvent:
+				runTracer.observe(e.Part)
 				switch part := e.Part.(type) {
 				case ai.TextPart:
 					if part.Content != "" {
@@ -500,6 +504,7 @@ func (m *chatModel) startStream(prompt string) tea.Cmd {
 				}
 			}
 		}
+		runTracer.end(nil)
 		var messages []ai.ModelMessage
 		var usage ai.Usage
 		if result := run.Result(); result != nil {

@@ -118,7 +118,9 @@ if at least one provider API key is set (skipped otherwise). Set
 Set `LOGFIRE_TOKEN` to send OpenTelemetry traces and metrics to
 [Logfire](https://pydantic.dev/logfire), Pydantic's own observability
 product — the run's agent spans, model requests, token usage, and cost, one
-trace per turn:
+trace per turn. Native (provider-executed) tool calls — web search, code
+execution — get their own child span too, since the underlying library only
+ever folds those into the chat span's message history otherwise.
 
 ```console
 export LOGFIRE_TOKEN="your-write-token"

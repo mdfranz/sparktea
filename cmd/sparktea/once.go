@@ -120,18 +120,24 @@ func runOnce(ctx context.Context, option modelOption, opts cliOptions) error {
 		}
 	}
 
-	run := agent.RunStream(ctx, opts.prompt, struct{}{}, runOpts...)
+	runTracer, runCtx := startRunTracer(ctx, "sparktea turn")
+
+	run := agent.RunStream(runCtx, opts.prompt, struct{}{}, runOpts...)
 	for event, err := range run.Events() {
 		if err != nil {
+			runTracer.end(err)
 			return err
 		}
 		switch e := event.(type) {
 		case ai.PartStartEvent:
+			runTracer.observe(e.Part)
 			switch part := e.Part.(type) {
 			case ai.TextPart:
 				fmt.Print(part.Content)
 			case ai.ThinkingPart:
 				fmt.Fprint(os.Stderr, part.Content)
+			case ai.NativeToolCallPart:
+				fmt.Fprintf(os.Stderr, "\n[native tool call] %s\n", part.ToolName)
 			}
 		case ai.PartDeltaEvent:
 			switch delta := e.Delta.(type) {
@@ -156,6 +162,7 @@ func runOnce(ctx context.Context, option modelOption, opts cliOptions) error {
 			}
 		}
 	}
+	runTracer.end(nil)
 	fmt.Println()
 
 	if result := run.Result(); result != nil {

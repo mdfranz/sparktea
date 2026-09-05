@@ -9,13 +9,22 @@ import (
 
 	ai "github.com/Kludex/pydantic-ai-go/ai"
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
+	"go.opentelemetry.io/otel/trace"
 )
+
+// tracer creates the turn and tool-call spans startRunTracer adds around
+// each agent run. It's safe to use unconditionally: until initLogfire (if
+// ever) calls otel.SetTracerProvider, otel's global tracer is a no-op, so
+// every span below costs nothing and sends nowhere.
+var tracer = otel.Tracer("sparktea")
 
 // defaultLogfireEndpoint is Logfire's US-region OTLP host. Set LOGFIRE_ENDPOINT
 // (e.g. "logfire-eu.pydantic.dev") to use another region or a proxy.
@@ -92,6 +101,78 @@ func initLogfire(ctx context.Context) (shutdown func(context.Context) error, err
 	return func(ctx context.Context) error {
 		return errors.Join(tracerProvider.Shutdown(ctx), meterProvider.Shutdown(ctx))
 	}, nil
+}
+
+// runTracer wraps one agent run in a span and turns each native
+// (provider-executed) tool call into its own child span. Without this, tools
+// like web_search or code_execution never appear structurally in Logfire:
+// the pydantic-ai-go library only folds them into the chat span's
+// message-history attribute, which is redacted unless LOGFIRE_SEND_CONTENT=1
+// — so a run that made a dozen native tool calls shows up as a single
+// opaque "chat" span.
+//
+// The turn span exists so those tool-call spans have somewhere to nest:
+// newAgentFor's caller doesn't get back the context the library's own
+// invoke_agent/chat spans run in, so a span opened directly on the run's
+// context and passed down (see startRunTracer) is the only way to put tool
+// spans in the same trace as the model call they belong to.
+type runTracer struct {
+	span  trace.Span
+	ctx   context.Context
+	tools map[string]trace.Span
+}
+
+// startRunTracer opens the turn span and returns the context to run the
+// agent with, so invoke_agent/chat and any tool-call spans this reports all
+// land in one trace.
+func startRunTracer(ctx context.Context, name string) (*runTracer, context.Context) {
+	spanCtx, span := tracer.Start(ctx, name)
+	return &runTracer{span: span, ctx: spanCtx, tools: map[string]trace.Span{}}, spanCtx
+}
+
+// observe starts or ends a child span for a native tool call/return part; it
+// ignores every other part kind. Call it for every ai.PartStartEvent.Part
+// seen while draining a run's event stream.
+func (t *runTracer) observe(part ai.ResponsePart) {
+	switch part := part.(type) {
+	case ai.NativeToolCallPart:
+		if part.ToolCallID == "" {
+			return
+		}
+		_, span := tracer.Start(t.ctx, part.ToolName, trace.WithAttributes(
+			attribute.String("gen_ai.operation.name", "execute_tool"),
+			attribute.String("gen_ai.tool.name", part.ToolName),
+			attribute.String("gen_ai.tool.call.id", part.ToolCallID),
+		))
+		t.tools[part.ToolCallID] = span
+
+	case ai.NativeToolReturnPart:
+		span, ok := t.tools[part.ToolCallID]
+		if !ok {
+			return
+		}
+		if part.Outcome != "" && part.Outcome != ai.ToolReturnOutcomeSuccess {
+			span.SetStatus(codes.Error, string(part.Outcome))
+		}
+		span.End()
+		delete(t.tools, part.ToolCallID)
+	}
+}
+
+// end closes any tool spans left open — e.g. the run was cancelled
+// mid-call — and then the turn span itself. Call it exactly once, however
+// the run finished.
+func (t *runTracer) end(err error) {
+	for id, span := range t.tools {
+		span.SetStatus(codes.Error, "interrupted")
+		span.End()
+		delete(t.tools, id)
+	}
+	if err != nil {
+		t.span.SetStatus(codes.Error, err.Error())
+		t.span.RecordError(err)
+	}
+	t.span.End()
 }
 
 // logfireEndpoint returns the bare host:port otlptracehttp/otlpmetrichttp
