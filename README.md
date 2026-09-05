@@ -18,16 +18,7 @@ idiomatic port of [PydanticAI](https://ai.pydantic.dev/) by
 everything sparktea does is pydantic-ai-go doing the real work; this repo
 just wires it up to a terminal:
 
-| sparktea feature | pydantic-ai-go piece behind it |
-| --- | --- |
-| The whole chat loop, streamed token-by-token | `ai.Agent`, `Agent.RunStream`, `PartStartEvent`/`PartDeltaEvent` |
-| Every model provider (OpenRouter, Gemini, and a one-line swap away from OpenAI, Anthropic, Bedrock, Groq, Mistral, xAI, and more) | `ai/models/*` provider adapters |
-| Cross-provider history when you `/model` mid-conversation | `ai.ModelMessage`, `ai.WithMessageHistory` — a provider-neutral message format |
-| `/search` web grounding (on providers whose adapter implements native-tool support) | `ai.WebSearchTool` / `ai.WithRunNativeTools` |
-| Thinking traces rendered above the answer | `ai.ThinkingPart` / `ai.ThinkingPartDelta` |
-| `/save` and `/load` | `ai.MarshalMessages` / `ai.UnmarshalMessages` |
-| `/usage` totals, including cost | `ai.Usage` and its `genai-prices` integration |
-| Logfire tracing | `ai.NewInstrumentation`, pydantic-ai-go's OpenTelemetry capability |
+
 
 pydantic-ai-go is MIT-licensed and under active development, with a much
 larger surface than sparktea touches — tool calling, structured output,
@@ -88,6 +79,30 @@ Type these instead of a message:
 | `/code` (or `/code on`/`off`) | Toggle Code Mode: gives the model a `run_code` tool that executes Python in a sandbox. Off by default. See "Code Mode" below. |
 | `/save [name]` | Write the conversation to `~/.sparktea/sessions/<name>.json` (default name `default`). |
 | `/load [name]` | Restore a saved conversation, replaying its transcript and history. |
+
+## Scripting (non-interactive mode)
+
+Pass `-prompt` to run a single turn to completion and exit, skipping the
+TUI — useful for testing (Code Mode especially) without hand-typing into
+the chat screen:
+
+```console
+sparktea -list-models
+sparktea -model claude-haiku-4-5-20251001 -code \
+  -prompt "Use run_code to compute the 20th Fibonacci number."
+```
+
+- `-model` takes a model ID (e.g. `claude-haiku-4-5-20251001`,
+  `~deepseek/deepseek-v4-flash-latest`), not the display label — `-list-models`
+  prints available IDs (tab-separated: id, provider, label). Omitted, it
+  defaults to the first available model. A substring also works as long as
+  it's unambiguous.
+- `-code` / `-search` enable Code Mode / native web search for that one run,
+  same as `/code` and `/search` in the TUI.
+- The model's answer streams to stdout; thinking, tool calls (including the
+  exact `run_code` argument and result), and a final usage line go to
+  stderr — redirect it away (`2>/dev/null`) for just the answer, or capture
+  it separately to see what a script actually ran.
 
 ## Observability (Logfire)
 
