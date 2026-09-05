@@ -4,6 +4,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 
@@ -11,16 +12,36 @@ import (
 )
 
 func main() {
+	os.Exit(run())
+}
+
+// run holds the body of main so deferred cleanup (flushing telemetry) always
+// runs — os.Exit in main itself would skip it.
+func run() int {
 	options := availableModels()
 	if len(options) == 0 {
 		fmt.Fprintln(os.Stderr, "openrouter-agent: no API keys found.")
 		fmt.Fprintln(os.Stderr, "Set OPENROUTER_API_KEY for OpenRouter models and/or GEMINI_API_KEY (or GOOGLE_API_KEY) for Gemini models.")
-		os.Exit(1)
+		return 1
 	}
+
+	ctx := context.Background()
+	shutdownLogfire, err := initLogfire(ctx)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "openrouter-agent: logfire disabled:", err)
+	} else if logfireCapability != nil {
+		fmt.Fprintln(os.Stderr, "openrouter-agent: sending traces to Logfire ("+logfireEndpoint()+")")
+	}
+	defer func() {
+		if err := shutdownLogfire(context.Background()); err != nil {
+			fmt.Fprintln(os.Stderr, "openrouter-agent: flush telemetry:", err)
+		}
+	}()
 
 	p := tea.NewProgram(newAppModel(options), tea.WithAltScreen())
 	if _, err := p.Run(); err != nil {
 		fmt.Fprintln(os.Stderr, "openrouter-agent:", err)
-		os.Exit(1)
+		return 1
 	}
+	return 0
 }

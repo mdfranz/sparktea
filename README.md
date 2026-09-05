@@ -42,6 +42,30 @@ Type these instead of a message:
 | `/save [name]` | Write the conversation to `~/.openrouter-agent/sessions/<name>.json` (default name `default`). |
 | `/load [name]` | Restore a saved conversation, replaying its transcript and history. |
 
+## Observability (Logfire)
+
+Set `LOGFIRE_TOKEN` to send OpenTelemetry traces and metrics to
+[Logfire](https://pydantic.dev/logfire) — the run's agent spans, model
+requests, token usage, and cost, one trace per turn:
+
+```console
+export LOGFIRE_TOKEN="your-write-token"
+go run .
+```
+
+That's it — no other env vars needed. By default it targets Logfire's US
+region (`logfire-us.pydantic.dev`); set `LOGFIRE_ENDPOINT` for the EU region
+or a self-hosted collector. `OTEL_SERVICE_NAME` overrides the reported
+service name (default `openrouter-agent`).
+
+Prompts, completions, and full request parameters are **not** sent by
+default, since this telemetry leaves your machine — only trace structure,
+token counts, and cost. Set `LOGFIRE_SEND_CONTENT=1` to include them once
+you trust the destination project with conversation content.
+
+Without `LOGFIRE_TOKEN` set, none of this runs — no OTel providers are
+installed and agents behave exactly as before.
+
 ## Adding models
 
 The startup list is a static catalog in `models.go`. Add an entry there —

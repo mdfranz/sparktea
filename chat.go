@@ -80,9 +80,16 @@ type chatModel struct {
 // newAgentFor builds the agent for a model option. Called both when a chat
 // starts and when /model switches models mid-conversation.
 func newAgentFor(option modelOption) *ai.Agent[struct{}, string] {
-	return ai.NewAgent[struct{}, string](option.newModel(),
+	opts := []ai.Option{
 		ai.WithInstructions("Answer clearly and concisely."),
-	)
+	}
+	if logfireCapability != nil {
+		opts = append(opts,
+			ai.WithAgentName("openrouter-agent"),
+			ai.WithCapabilities(logfireCapability),
+		)
+	}
+	return ai.NewAgent[struct{}, string](option.newModel(), opts...)
 }
 
 func newChatModel(option modelOption, width, height int) (*chatModel, tea.Cmd) {
@@ -223,7 +230,11 @@ func (m *chatModel) View() string {
 	if !m.ready {
 		return "initializing…"
 	}
-	header := headerStyle.Render(fmt.Sprintf("openrouter-agent · %s", m.option.label))
+	title := fmt.Sprintf("openrouter-agent · %s", m.option.label)
+	if logfireCapability != nil {
+		title += " · 🔭 logfire"
+	}
+	header := headerStyle.Render(title)
 
 	status := helpStyle.Render("enter: send · /model /usage /clear /search /save /load · esc/ctrl+c/ctrl+d: quit")
 	if m.searchEnabled {
