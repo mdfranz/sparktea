@@ -17,6 +17,7 @@ var (
 	userStyle      = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("39"))
 	assistantStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("42"))
 	systemStyle    = lipgloss.NewStyle().Italic(true).Faint(true)
+	thinkingStyle  = lipgloss.NewStyle().Italic(true).Faint(true).Foreground(lipgloss.Color("141"))
 	errorStyle     = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("196"))
 	helpStyle      = lipgloss.NewStyle().Faint(true)
 	headerStyle    = lipgloss.NewStyle().Bold(true).Padding(0, 1).
@@ -25,7 +26,7 @@ var (
 
 // transcriptEntry is one rendered turn in the chat viewport.
 type transcriptEntry struct {
-	role string // "user", "assistant", or "system"
+	role string // "user", "assistant", "thinking", or "system"
 	text string
 }
 
@@ -36,10 +37,15 @@ type requestModelSwitchMsg struct{}
 // Messages fed from the background streaming goroutine into Update via a
 // per-turn channel; see waitForStream.
 type (
-	streamStartedMsg struct{ ch chan tea.Msg }
-	streamDeltaMsg   string
-	streamDoneMsg    struct{ messages []ai.ModelMessage }
-	streamErrMsg     struct{ err error }
+	streamStartedMsg       struct{ ch chan tea.Msg }
+	streamDeltaMsg         string
+	streamThinkingDeltaMsg string
+	streamNoteMsg          string
+	streamDoneMsg          struct {
+		messages []ai.ModelMessage
+		usage    ai.Usage
+	}
+	streamErrMsg struct{ err error }
 )
 
 // chatModel is the main conversation screen: a scrolling transcript, a text
@@ -57,10 +63,14 @@ type chatModel struct {
 	input    textinput.Model
 	spinner  spinner.Model
 
-	transcript []transcriptEntry
-	streaming  bool
-	streamCh   chan tea.Msg
-	current    strings.Builder
+	transcript      []transcriptEntry
+	streaming       bool
+	streamCh        chan tea.Msg
+	current         strings.Builder
+	currentThinking strings.Builder
+
+	sessionUsage  ai.Usage
+	searchEnabled bool
 
 	err           error
 	width, height int
@@ -140,11 +150,13 @@ func (m *chatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "enter":
 			if !m.streaming {
 				prompt := strings.TrimSpace(m.input.Value())
-				switch prompt {
-				case "":
-				case "/model":
+				switch {
+				case prompt == "":
+				case strings.HasPrefix(prompt, "/"):
 					m.input.Reset()
-					return m, func() tea.Msg { return requestModelSwitchMsg{} }
+					if cmd := m.runCommand(prompt); cmd != nil {
+						return m, cmd
+					}
 				default:
 					m.transcript = append(m.transcript, transcriptEntry{role: "user", text: prompt})
 					m.input.Reset()
@@ -166,26 +178,29 @@ func (m *chatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.refreshViewport()
 		return m, waitForStream(m.streamCh)
 
+	case streamThinkingDeltaMsg:
+		m.currentThinking.WriteString(string(msg))
+		m.refreshViewport()
+		return m, waitForStream(m.streamCh)
+
+	case streamNoteMsg:
+		m.transcript = append(m.transcript, transcriptEntry{role: "system", text: string(msg)})
+		m.refreshViewport()
+		return m, waitForStream(m.streamCh)
+
 	case streamDoneMsg:
 		m.streaming = false
 		if msg.messages != nil {
 			m.history = msg.messages
 		}
-		if m.current.Len() > 0 {
-			m.transcript = append(m.transcript, transcriptEntry{role: "assistant", text: m.current.String()})
-			m.current.Reset()
-		}
-		m.refreshViewport()
+		m.sessionUsage.Add(msg.usage)
+		m.flushCurrentTurn()
 		return m, nil
 
 	case streamErrMsg:
 		m.streaming = false
 		m.err = msg.err
-		if m.current.Len() > 0 {
-			m.transcript = append(m.transcript, transcriptEntry{role: "assistant", text: m.current.String()})
-			m.current.Reset()
-		}
-		m.refreshViewport()
+		m.flushCurrentTurn()
 		return m, nil
 
 	case spinner.TickMsg:
@@ -210,7 +225,10 @@ func (m *chatModel) View() string {
 	}
 	header := headerStyle.Render(fmt.Sprintf("openrouter-agent · %s", m.option.label))
 
-	status := helpStyle.Render("enter: send · /model: switch model · esc/ctrl+c/ctrl+d: quit")
+	status := helpStyle.Render("enter: send · /model /usage /clear /search /save /load · esc/ctrl+c/ctrl+d: quit")
+	if m.searchEnabled {
+		status = helpStyle.Render("🔎 web search on · ") + status
+	}
 	if m.streaming {
 		status = fmt.Sprintf("%s thinking…", m.spinner.View())
 	} else if m.err != nil {
@@ -236,7 +254,11 @@ func (m *chatModel) refreshViewport() {
 		writeEntry(&b, entry.role, entry.text)
 	}
 	if m.streaming {
-		if m.transcript != nil {
+		if len(m.transcript) > 0 {
+			b.WriteString("\n\n")
+		}
+		if m.currentThinking.Len() > 0 {
+			writeEntry(&b, "thinking", m.currentThinking.String())
 			b.WriteString("\n\n")
 		}
 		text := m.current.String()
@@ -249,6 +271,20 @@ func (m *chatModel) refreshViewport() {
 	m.viewport.GotoBottom()
 }
 
+// flushCurrentTurn moves any in-progress thinking/answer text into the
+// transcript and re-renders. Called when a stream ends, successfully or not.
+func (m *chatModel) flushCurrentTurn() {
+	if m.currentThinking.Len() > 0 {
+		m.transcript = append(m.transcript, transcriptEntry{role: "thinking", text: m.currentThinking.String()})
+		m.currentThinking.Reset()
+	}
+	if m.current.Len() > 0 {
+		m.transcript = append(m.transcript, transcriptEntry{role: "assistant", text: m.current.String()})
+		m.current.Reset()
+	}
+	m.refreshViewport()
+}
+
 func writeEntry(b *strings.Builder, role, text string) {
 	switch role {
 	case "user":
@@ -257,11 +293,22 @@ func writeEntry(b *strings.Builder, role, text string) {
 		b.WriteString(text)
 	case "system":
 		b.WriteString(systemStyle.Render(text))
+	case "thinking":
+		b.WriteString(thinkingStyle.Render("💭 Thinking"))
+		b.WriteString("\n")
+		b.WriteString(thinkingStyle.Render(text))
 	default:
 		b.WriteString(assistantStyle.Render("Assistant"))
 		b.WriteString("\n")
 		b.WriteString(text)
 	}
+}
+
+// note appends a system-styled line to the transcript, e.g. for command
+// output, and re-renders.
+func (m *chatModel) note(text string) {
+	m.transcript = append(m.transcript, transcriptEntry{role: "system", text: text})
+	m.refreshViewport()
 }
 
 // switchModel replaces the active model with option, keeping the transcript
@@ -272,11 +319,78 @@ func (m *chatModel) switchModel(option modelOption) {
 	}
 	m.option = option
 	m.agent = newAgentFor(option)
-	m.transcript = append(m.transcript, transcriptEntry{
-		role: "system",
-		text: fmt.Sprintf("— switched to %s —", option.label),
-	})
-	m.refreshViewport()
+	m.note(fmt.Sprintf("— switched to %s —", option.label))
+}
+
+// runCommand handles a "/..." input line. It returns a non-nil tea.Cmd only
+// for commands that need appModel's involvement (currently /model);
+// everything else is applied directly and returns nil.
+func (m *chatModel) runCommand(line string) tea.Cmd {
+	fields := strings.Fields(line)
+	name := fields[0]
+	arg := strings.TrimSpace(strings.TrimPrefix(line, name))
+
+	switch name {
+	case "/model":
+		return func() tea.Msg { return requestModelSwitchMsg{} }
+
+	case "/usage":
+		u := m.sessionUsage
+		cost := "unknown"
+		if u.CostUSD != nil {
+			cost = fmt.Sprintf("$%.4f", *u.CostUSD)
+		}
+		m.note(fmt.Sprintf(
+			"requests=%d input_tokens=%d output_tokens=%d tool_calls=%d cost=%s",
+			u.Requests, u.InputTokens, u.OutputTokens, u.ToolCalls, cost,
+		))
+
+	case "/clear":
+		m.history = nil
+		m.transcript = nil
+		m.sessionUsage = ai.Usage{}
+		m.err = nil
+		m.note("History cleared.")
+
+	case "/search":
+		switch strings.ToLower(arg) {
+		case "on":
+			m.searchEnabled = true
+		case "off":
+			m.searchEnabled = false
+		default:
+			m.searchEnabled = !m.searchEnabled
+		}
+		state := "off"
+		if m.searchEnabled {
+			state = "on"
+		}
+		m.note("web search: " + state)
+
+	case "/save":
+		path, err := writeSessionFile(arg, m.history)
+		if err != nil {
+			m.note("save failed: " + err.Error())
+			break
+		}
+		m.note("saved session to " + path)
+
+	case "/load":
+		messages, path, err := readSessionFile(arg)
+		if err != nil {
+			m.note("load failed: " + err.Error())
+			break
+		}
+		m.history = messages
+		m.transcript = transcriptFromMessages(messages)
+		m.sessionUsage = ai.Usage{}
+		m.err = nil
+		m.note("loaded session from " + path)
+
+	default:
+		m.note("unknown command: " + name)
+	}
+	return nil
 }
 
 // waitForStream reads the next bubbletea message produced by the background
@@ -298,9 +412,15 @@ func (m *chatModel) startStream(prompt string) tea.Cmd {
 	ctx := m.ctx
 	history := m.history
 
+	runOpts := []ai.RunOption{ai.WithMessageHistory(history)}
+	if m.searchEnabled {
+		// Optional: true lets models without native search support just skip
+		// it instead of failing the run.
+		runOpts = append(runOpts, ai.WithRunNativeTools(ai.WebSearchTool{Optional: true}))
+	}
+
 	go func() {
-		run := agent.RunStream(ctx, prompt, struct{}{}, ai.WithMessageHistory(history))
-		textIdx := map[int]bool{}
+		run := agent.RunStream(ctx, prompt, struct{}{}, runOpts...)
 		for event, err := range run.Events() {
 			if err != nil {
 				ch <- streamErrMsg{err: err}
@@ -308,26 +428,38 @@ func (m *chatModel) startStream(prompt string) tea.Cmd {
 			}
 			switch e := event.(type) {
 			case ai.PartStartEvent:
-				if tp, ok := e.Part.(ai.TextPart); ok {
-					textIdx[e.Index] = true
-					if tp.Content != "" {
-						ch <- streamDeltaMsg(tp.Content)
+				switch part := e.Part.(type) {
+				case ai.TextPart:
+					if part.Content != "" {
+						ch <- streamDeltaMsg(part.Content)
 					}
+				case ai.ThinkingPart:
+					if part.Content != "" {
+						ch <- streamThinkingDeltaMsg(part.Content)
+					}
+				case ai.NativeToolCallPart:
+					ch <- streamNoteMsg("🔎 " + part.ToolName)
 				}
 			case ai.PartDeltaEvent:
-				if !textIdx[e.Index] {
-					continue
-				}
-				if td, ok := e.Delta.(ai.TextPartDelta); ok && td.ContentDelta != "" {
-					ch <- streamDeltaMsg(td.ContentDelta)
+				switch delta := e.Delta.(type) {
+				case ai.TextPartDelta:
+					if delta.ContentDelta != "" {
+						ch <- streamDeltaMsg(delta.ContentDelta)
+					}
+				case ai.ThinkingPartDelta:
+					if delta.ContentDelta != "" {
+						ch <- streamThinkingDeltaMsg(delta.ContentDelta)
+					}
 				}
 			}
 		}
 		var messages []ai.ModelMessage
+		var usage ai.Usage
 		if result := run.Result(); result != nil {
 			messages = result.Messages()
+			usage = result.Usage()
 		}
-		ch <- streamDoneMsg{messages: messages}
+		ch <- streamDoneMsg{messages: messages, usage: usage}
 	}()
 
 	return func() tea.Msg {

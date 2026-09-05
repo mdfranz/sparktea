@@ -25,8 +25,22 @@ Keys:
 ## Usage
 
 - `↑`/`↓` (or `j`/`k`) to move through the model list, `enter` to select.
-- Type a message, `enter` to send.
-- `esc` or `ctrl+c` to quit.
+- Type a message, `enter` to send. Reasoning models' thinking traces render
+  dimmed above the answer when the provider exposes them.
+- `esc`, `ctrl+c`, or `ctrl+d` (on an empty input line) to quit.
+
+### Commands
+
+Type these instead of a message:
+
+| Command | Effect |
+| --- | --- |
+| `/model` | Reopen the model picker mid-conversation; history carries over, even across providers. |
+| `/usage` | Show session totals: requests, input/output tokens, tool calls, cost. |
+| `/clear` | Discard history and usage totals; start fresh without restarting. |
+| `/search` (or `/search on`/`off`) | Toggle native web search grounding (`ai.WebSearchTool`) for models that support it. Unsupported models just ignore it. |
+| `/save [name]` | Write the conversation to `~/.openrouter-agent/sessions/<name>.json` (default name `default`). |
+| `/load [name]` | Restore a saved conversation, replaying its transcript and history. |
 
 ## Adding models
 
