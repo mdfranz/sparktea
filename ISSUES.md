@@ -57,10 +57,37 @@ google: API returned status 400: {"error":{"code":400,"message":"Unsupported inp
 sparktea's headline features — can break the first turn on the new model if
 the prior model left a thinking block in history.
 
+## pydantic-ai-go: OpenAI Responses stream doesn't recognize web-search progress events
+
+Found 2026-09-05 via a live session testing sparktea's new OpenAI support.
+Confirmed via Logfire traces; not yet filed upstream or fixed.
+
+`responses_stream.go`'s event-type switch (around line 714) hardcodes an
+allowlist of provider progress events safe to ignore per tool family —
+`response.code_interpreter_call.*`, `response.image_generation_call.*`,
+`response.file_search_call.*`, `response.mcp_call.*` — but has no
+`response.web_search_call.*` entries at all. Any such event falls through to
+the `default:` case and aborts the stream with `openai: unknown Responses
+stream event type "response.web_search_call.in_progress"`.
+
+Repro: `openai.NewResponsesModel(...)` with `ai.WithRunNativeTools(ai.WebSearchTool{...})`,
+a prompt that actually triggers a web search call, streamed (not static)
+generation. Fails immediately with the error above; the run is aborted, not
+degraded.
+
+**Impact on sparktea:** unlike the two issues above, this doesn't need a
+prior turn or history replay — the *first* streamed native web search on an
+OpenAI model crashes the turn. `supportsNativeWebSearch()` in `models.go`
+excludes `providerOpenAI` entirely as a result, so `/search` is currently
+unavailable for OpenAI models (same treatment as Mistral, for an unrelated
+reason) until this is fixed upstream.
+
 ## Verifying a fix
 
-Once either issue closes, `go get github.com/Kludex/pydantic-ai-go/ai@main
+Once an issue closes, `go get github.com/Kludex/pydantic-ai-go/ai@main
 ... && go mod tidy` (see README's "Updating pydantic-ai-go") and re-run the
-matching repro above. No sparktea-side code should need to change either
-way — both bugs are in the provider adapters' request serialization, not in
-how sparktea builds or replays `m.history`.
+matching repro above. The two thinking-block issues need no sparktea-side
+change either way — both are in the provider adapters' request
+serialization, not in how sparktea builds or replays `m.history`. The
+OpenAI web-search issue does: once fixed, add `providerOpenAI` back to
+`supportsNativeWebSearch()` in `models.go`.
