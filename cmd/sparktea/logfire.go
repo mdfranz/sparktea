@@ -49,6 +49,24 @@ func initLogfire(ctx context.Context) (shutdown func(context.Context) error, err
 		return noop, nil
 	}
 
+	// otel's default global ErrorHandler prints straight to os.Stderr
+	// (log.Print) whenever any SDK-internal operation fails -- and
+	// sdkmetric.PeriodicReader calls it on every export tick that errors,
+	// not just at shutdown (see (*PeriodicReader).run in
+	// go.opentelemetry.io/otel/sdk/metric). Confirmed live 2026-09-06: with
+	// a tick landing on a period with no new metric points, Logfire 422s
+	// that (now-empty) export the same way it 422s the shutdown-forced one
+	// (see the comment below) -- and unlike our own shutdown path, that
+	// error never passes through code we control, so it can't be
+	// conditionally silenced there. It goes straight to the raw terminal
+	// underneath bubbletea's alt-screen, corrupting the TUI. Telemetry
+	// failures should never do that regardless of cause, so route every
+	// otel-internal error to the local debug log instead -- still
+	// inspectable, never on screen.
+	otel.SetErrorHandler(otel.ErrorHandlerFunc(func(err error) {
+		logLocal(slog.LevelWarn, "otel_internal_error", "error", err.Error())
+	}))
+
 	endpoint := logfireEndpoint()
 	headers := map[string]string{"Authorization": token}
 
@@ -100,7 +118,19 @@ func initLogfire(ctx context.Context) (shutdown func(context.Context) error, err
 	)
 
 	return func(ctx context.Context) error {
-		return errors.Join(tracerProvider.Shutdown(ctx), meterProvider.Shutdown(ctx))
+		metricsErr := meterProvider.Shutdown(ctx)
+		if metricsErr != nil {
+			// Confirmed via Logfire query (2026-09-05): the periodic reader
+			// already ships every recorded histogram point on its own
+			// ~60s cadence, so by the time shutdown forces one more
+			// collect-and-export there's nothing new to send. Logfire's
+			// metrics endpoint 422s on that trailing, unchanged export
+			// instead of treating it as a no-op — cosmetic, no data is
+			// lost, so don't surface it as a telemetry failure.
+			logLocal(slog.LevelDebug, "logfire_metrics_final_flush_failed", "error", metricsErr.Error())
+			metricsErr = nil
+		}
+		return errors.Join(tracerProvider.Shutdown(ctx), metricsErr)
 	}, nil
 }
 

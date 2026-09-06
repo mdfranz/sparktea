@@ -101,8 +101,13 @@ echo
 echo "== -list-models / no-API-key path =="
 
 run -list-models
+# Captured now, before anything else calls run() again and overwrites
+# $stdout_file (the same path every run() call writes to) — this is the
+# full catalog list every later check (including the SPARKTEA_TEST_ALL_MODELS
+# loop below) reads from instead of re-reading a file that's since changed.
+mapfile -t catalog_lines <"$stdout_file"
 no_keys_expected=1
-for var in OPENROUTER_API_KEY GEMINI_API_KEY GOOGLE_API_KEY ANTHROPIC_API_KEY MISTRAL_API_KEY; do
+for var in OPENROUTER_API_KEY GEMINI_API_KEY GOOGLE_API_KEY ANTHROPIC_API_KEY MISTRAL_API_KEY OPENAI_API_KEY; do
 	if [ -n "${!var:-}" ]; then
 		no_keys_expected=0
 	fi
@@ -128,8 +133,8 @@ fi
 # not necessarily the cheapest — set SPARKTEA_TEST_MODEL to pin a specific
 # (ideally cheap) model instead, e.g. for repeated local runs.
 first_model="${SPARKTEA_TEST_MODEL:-}"
-if [ -z "$first_model" ] && [ -s "$stdout_file" ]; then
-	first_model="$(cut -f1 "$stdout_file" | head -n1)"
+if [ -z "$first_model" ] && [ "${#catalog_lines[@]}" -gt 0 ]; then
+	first_model="${catalog_lines[0]%%$'\t'*}"
 fi
 
 echo
@@ -185,6 +190,31 @@ else
 			&& contains "$stderr_file" "[tool result] run_code" \
 			&& contains "$stdout_file" "42"; then
 			pass "live Code Mode call runs run_code and returns 42"
+		fi
+
+		echo
+		if [ "${SPARKTEA_TEST_ALL_MODELS:-0}" = "1" ]; then
+			# One cheap live call per catalog entry whose provider key is
+			# present (the same set -list-models just printed to
+			# $stdout_file above) — the only way to catch a catalog entry
+			# whose modelID the provider itself rejects, e.g. a stale
+			# OpenRouter slug like "~deepseek/deepseek-v4-pro-latest" (was
+			# "not a valid model ID", 400, while sibling models on the same
+			# provider worked fine). Opt-in and separate from the single
+			# -model checks above: it costs one call per catalog entry,
+			# not per provider, so it's the slowest and priciest check
+			# here.
+			echo "== live: every catalog model (SPARKTEA_TEST_ALL_MODELS=1) =="
+			for line in "${catalog_lines[@]}"; do
+				IFS=$'\t' read -r model_id label <<<"$line"
+				[ -n "$model_id" ] || continue
+				run -model "$model_id" -prompt "Reply with exactly one word: OK"
+				if check_exit "live: $model_id ($label)" 0 && contains "$stdout_file" "OK"; then
+					pass "live: $model_id ($label)"
+				fi
+			done
+		else
+			skip "live: every catalog model (set SPARKTEA_TEST_ALL_MODELS=1)"
 		fi
 	fi
 fi

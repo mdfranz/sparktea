@@ -40,8 +40,11 @@ func run() (exitCode int) {
 		}()
 	}
 	mode := "interactive"
-	if opts.prompt != "" {
+	switch {
+	case opts.prompt != "":
 		mode = "one_shot"
+	case opts.script != "":
+		mode = "script"
 	}
 	logLocal(slog.LevelInfo, "process_started", "mode", mode)
 
@@ -79,6 +82,15 @@ func run() (exitCode int) {
 		}
 	}()
 
+	if opts.script != "" {
+		if err := runScript(ctx, options, opts); err != nil {
+			logLocalError("script_failed", err)
+			fmt.Fprintln(os.Stderr, "sparktea:", err)
+			return 1
+		}
+		return 0
+	}
+
 	if opts.prompt != "" {
 		option, err := resolveModel(options, opts.model)
 		if err != nil {
@@ -94,7 +106,7 @@ func run() (exitCode int) {
 		return 0
 	}
 
-	p := tea.NewProgram(newAppModel(options), tea.WithAltScreen())
+	p := tea.NewProgram(newAppModel(options), tea.WithAltScreen(), tea.WithMouseCellMotion())
 	if _, err := p.Run(); err != nil {
 		logLocalError("interactive_failed", err)
 		fmt.Fprintln(os.Stderr, "sparktea:", err)

@@ -24,6 +24,7 @@ type cliOptions struct {
 	code       bool
 	search     bool
 	listModels bool
+	script     string
 }
 
 // parseCLIFlags parses args (os.Args[1:]). flag.ErrHelp is returned as-is on
@@ -32,11 +33,21 @@ func parseCLIFlags(args []string) (cliOptions, error) {
 	fs := flag.NewFlagSet("sparktea", flag.ContinueOnError)
 	var opts cliOptions
 	fs.StringVar(&opts.prompt, "prompt", "", "Run this prompt once, non-interactively, and exit (skips the TUI).")
-	fs.StringVar(&opts.model, "model", "", "Model ID to use with -prompt, e.g. claude-haiku-4-5-20251001, or provider:model_id (e.g. anthropic:claude-haiku-4-5-20251001) to disambiguate (see -list-models). Defaults to the first available model.")
+	fs.StringVar(&opts.model, "model", "", "Model ID to use with -prompt or -script, e.g. claude-haiku-4-5-20251001, or provider:model_id (e.g. anthropic:claude-haiku-4-5-20251001) to disambiguate (see -list-models). Defaults to the first available model.")
 	fs.BoolVar(&opts.code, "code", false, "Enable Code Mode's run_code tool for this run.")
 	fs.BoolVar(&opts.search, "search", false, "Enable native web search for this run, if the model supports it.")
 	fs.BoolVar(&opts.listModels, "list-models", false, "List available models as provider:model_id (API key present) and exit.")
+	fs.StringVar(&opts.script, "script", "", "Run a sequence of prompts and commands from this file, non-interactively, sharing one growing conversation across turns (skips the TUI; mutually exclusive with -prompt). See README's \"Scripting multi-turn sequences\" for the file format.")
 	if err := fs.Parse(args); err != nil {
+		return cliOptions{}, err
+	}
+	if opts.prompt != "" && opts.script != "" {
+		// fs.Parse prints its own errors to stderr before returning them;
+		// match that here so a mutual-exclusivity error isn't silent too —
+		// main.go only special-cases flag.ErrHelp, exiting quietly on any
+		// other error.
+		err := fmt.Errorf("sparktea: -prompt and -script are mutually exclusive")
+		fmt.Fprintln(os.Stderr, err)
 		return cliOptions{}, err
 	}
 	return opts, nil
@@ -113,23 +124,42 @@ func runOnce(ctx context.Context, option modelOption, opts cliOptions) error {
 	if opts.code {
 		runOpts = append(runOpts, ai.WithRunCapabilities(codemode.New()))
 	}
-	if opts.search {
-		if !option.supportsNativeWebSearch() {
-			fmt.Fprintf(os.Stderr, "sparktea: %s has no native web search — ignored\n", option.provider)
-		} else {
-			runOpts = append(runOpts, ai.WithRunNativeTools(ai.WebSearchTool{Optional: true}))
-		}
+	searchEnabled := opts.search && option.supportsNativeWebSearch()
+	if opts.search && !searchEnabled {
+		fmt.Fprintf(os.Stderr, "sparktea: %s has no native web search — ignored\n", option.provider)
+	} else if searchEnabled {
+		runOpts = append(runOpts, ai.WithRunNativeTools(ai.WebSearchTool{Optional: true}))
 	}
 
-	logLocal(slog.LevelInfo, "turn_started", "mode", "one_shot", "provider", string(option.provider), "model", option.modelID, "web_search", opts.search && option.supportsNativeWebSearch(), "code_mode", opts.code)
+	_, err := runTurn(ctx, agent, option, opts.prompt, nil, runOpts, "one_shot",
+		"web_search", searchEnabled, "code_mode", opts.code)
+	return err
+}
+
+// runTurn drains one agent run to completion against history, with the same
+// stdout/stderr split as runOnce's doc comment describes, and returns the
+// updated message history (via the result's Messages()) for the caller to
+// carry into a next turn — runOnce passes it straight through since a
+// one-shot run has no next turn, but runScript threads it from one scripted
+// step to the next. mode and extraLogArgs are folded into the
+// turn_started/turn_completed/turn_failed local and Logfire spans so the two
+// callers stay distinguishable in logs (mode "one_shot" vs "script").
+func runTurn(
+	ctx context.Context, agent *ai.Agent[struct{}, string], option modelOption,
+	prompt string, history []ai.ModelMessage, runOpts []ai.RunOption,
+	mode string, extraLogArgs ...any,
+) ([]ai.ModelMessage, error) {
+	runOpts = append([]ai.RunOption{ai.WithMessageHistory(history)}, runOpts...)
+	startArgs := append([]any{"mode", mode, "provider", string(option.provider), "model", option.modelID}, extraLogArgs...)
+	logLocal(slog.LevelInfo, "turn_started", startArgs...)
 	runTracer, runCtx := startRunTracer(ctx, "sparktea turn")
 
-	run := agent.RunStream(runCtx, opts.prompt, struct{}{}, runOpts...)
+	run := agent.RunStream(runCtx, prompt, struct{}{}, runOpts...)
 	for event, err := range run.Events() {
 		if err != nil {
 			runTracer.end(err)
-			logLocalError("turn_failed", err, "mode", "one_shot", "provider", string(option.provider), "model", option.modelID)
-			return err
+			logLocalError("turn_failed", err, "mode", mode, "provider", string(option.provider), "model", option.modelID)
+			return history, err
 		}
 		switch e := event.(type) {
 		case ai.PartStartEvent:
@@ -171,11 +201,13 @@ func runOnce(ctx context.Context, option modelOption, opts cliOptions) error {
 	runTracer.end(nil)
 	fmt.Println()
 
+	messages := history
 	if result := run.Result(); result != nil {
+		messages = result.Messages()
 		u := result.Usage()
-		args := []any{"mode", "one_shot", "provider", string(option.provider), "model", option.modelID}
-		args = append(args, usageLogArgs(u)...)
-		logLocal(slog.LevelInfo, "turn_completed", args...)
+		completedArgs := []any{"mode", mode, "provider", string(option.provider), "model", option.modelID}
+		completedArgs = append(completedArgs, usageLogArgs(u)...)
+		logLocal(slog.LevelInfo, "turn_completed", completedArgs...)
 		cost := "unknown"
 		if u.CostUSD != nil {
 			cost = fmt.Sprintf("$%.4f", *u.CostUSD)
@@ -183,5 +215,5 @@ func runOnce(ctx context.Context, option modelOption, opts cliOptions) error {
 		fmt.Fprintf(os.Stderr, "usage: requests=%d input_tokens=%d output_tokens=%d tool_calls=%d cost=%s\n",
 			u.Requests, u.InputTokens, u.OutputTokens, u.ToolCalls, cost)
 	}
-	return nil
+	return messages, nil
 }
