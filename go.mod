@@ -86,4 +86,4 @@ require (
 
 replace github.com/ewhauser/gomonty => github.com/mdfranz/gomonty v0.0.0-20260905152908-2a387f1a0338
 
-replace github.com/Kludex/pydantic-ai-go => github.com/mdfranz/pydantic-ai-go v0.0.0-20260906191659-4d3cb21b6767
+replace github.com/Kludex/pydantic-ai-go => github.com/mdfranz/pydantic-ai-go v0.0.0-20260906201830-b92c569373db
