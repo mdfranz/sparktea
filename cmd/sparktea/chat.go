@@ -242,14 +242,23 @@ func newChatModel(option modelOption, width, height int) (*chatModel, tea.Cmd) {
 	ta.KeyMap.InsertNewline.SetKeys("ctrl+j")
 	ta.Focus()
 	// bubbles' textarea only backgrounds the row the cursor is actually on
-	// (FocusedStyle.CursorLine) — every other visible row (the filler rows
-	// below short input, see EndOfBufferCharacter) stays unstyled, so a
-	// tall-but-mostly-empty box shows the highlight on one line and bare
-	// terminal background everywhere else. Reusing CursorLine's own
-	// background for EndOfBuffer too makes the whole box read as one solid
-	// band regardless of how many lines are actually typed — same color
-	// bubbles already chose, just applied consistently.
+	// (FocusedStyle.CursorLine): every other visible row renders through
+	// FocusedStyle.Text instead, which carries no background of its own —
+	// so typed lines other than the cursor's show bare terminal background
+	// under the glyphs themselves (only trailing padding gets colored, via
+	// padInputBackground below), and the filler rows below short input
+	// (EndOfBufferCharacter) are unstyled too. Reusing CursorLine's own
+	// background for Text and EndOfBuffer makes the whole box read as one
+	// solid band on every row, not just the cursor's — same color bubbles
+	// already chose, just applied consistently.
+	// Placeholder gets the same treatment: with the box empty, only its
+	// first row (the one actually showing placeholder text) renders via
+	// CursorLine — any further empty rows below it (minInputHeight=2 means
+	// there's always at least one) fall back to FocusedStyle.Placeholder,
+	// which has the same no-background gap as Text above.
 	if bg := ta.FocusedStyle.CursorLine.GetBackground(); bg != nil {
+		ta.FocusedStyle.Text = ta.FocusedStyle.Text.Background(bg)
+		ta.FocusedStyle.Placeholder = ta.FocusedStyle.Placeholder.Background(bg)
 		ta.FocusedStyle.EndOfBuffer = ta.FocusedStyle.EndOfBuffer.Background(bg)
 	}
 
