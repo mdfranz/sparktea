@@ -43,8 +43,11 @@ var (
 	toolStyle      = lipgloss.NewStyle().Faint(true).Foreground(lipgloss.Color("75"))
 	errorStyle     = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("196"))
 	helpStyle      = lipgloss.NewStyle().Faint(true)
-	headerStyle    = lipgloss.NewStyle().Bold(true).Padding(0, 1).
-			Background(lipgloss.Color("62")).Foreground(lipgloss.Color("230"))
+	// headerStyle carries no background of its own — View() applies the same
+	// gray as the input box's CursorLine background, so the top line and the
+	// input box read as one consistent color instead of the header standing
+	// out as a separate purple band.
+	headerStyle = lipgloss.NewStyle().Bold(true).Padding(0, 1).Foreground(lipgloss.Color("230"))
 )
 
 // transcriptEntry is one entry in either the main transcript or the
@@ -504,7 +507,14 @@ func (m *chatModel) View() string {
 	if usage := formatUsageCompact(m.sessionUsage); usage != "" {
 		title += " · " + usage
 	}
+	// Same background as the input box (see padInputBackground below), full
+	// width, so the header reads as one solid gray band across the top line
+	// rather than a separate purple-highlighted title.
+	headerBg := m.input.FocusedStyle.CursorLine.GetBackground()
 	header := headerStyle.Render(title)
+	if headerBg != nil {
+		header = headerStyle.Background(headerBg).Width(m.width).Render(title)
+	}
 
 	status := helpStyle.Render("enter: send · ctrl+j: newline · /model /usage /clear /search /code /activity /save /load · esc/ctrl+c/ctrl+d: quit")
 	if m.searchEnabled && m.option.supportsNativeWebSearch() {
@@ -530,8 +540,8 @@ func (m *chatModel) View() string {
 	// together they make the input box read as one solid background band
 	// full width and full height, not just the cursor's own row.
 	inputView := m.input.View()
-	if bg := m.input.FocusedStyle.CursorLine.GetBackground(); bg != nil {
-		inputView = padInputBackground(inputView, m.width, bg)
+	if headerBg != nil {
+		inputView = padInputBackground(inputView, m.width, headerBg)
 	}
 
 	return lipgloss.JoinVertical(lipgloss.Left,
