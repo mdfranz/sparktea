@@ -820,13 +820,19 @@ func collectWebSearchSources(before, after []ai.ModelMessage) string {
 	if len(results) == 0 {
 		return ""
 	}
+	// The URL goes on its own line, indented under the title, rather than
+	// sharing one line as "Title — URL": the transcript viewport clips
+	// (doesn't wrap) lines wider than the pane, and a long title easily
+	// pushes the URL itself — the part worth being able to read or select
+	// in full — past the edge and off screen. On its own line the URL gets
+	// the pane's full width, so only unusually long URLs still truncate.
 	var b strings.Builder
 	b.WriteString("🔗 Sources:")
 	for _, r := range results {
 		b.WriteString("\n  · ")
 		if r.title != r.url {
 			b.WriteString(r.title)
-			b.WriteString(" — ")
+			b.WriteString("\n    ")
 		}
 		b.WriteString(r.url)
 	}

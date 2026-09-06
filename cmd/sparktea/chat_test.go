@@ -159,7 +159,7 @@ func TestCollectWebSearchSources(t *testing.T) {
 			},
 		})
 		got := collectWebSearchSources(before, after)
-		if want := "🔗 Sources:\n  · Example A — https://example.com/a"; got != want {
+		if want := "🔗 Sources:\n  · Example A\n    https://example.com/a"; got != want {
 			t.Errorf("collectWebSearchSources() = %q, want %q", got, want)
 		}
 	})
@@ -174,7 +174,7 @@ func TestCollectWebSearchSources(t *testing.T) {
 			},
 		})
 		got := collectWebSearchSources(before, after)
-		if want := "🔗 Sources:\n  · Example B — https://example.com/b"; got != want {
+		if want := "🔗 Sources:\n  · Example B\n    https://example.com/b"; got != want {
 			t.Errorf("duplicate urls should collapse to one entry, got %q, want %q", got, want)
 		}
 	})
