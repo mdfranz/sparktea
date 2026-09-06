@@ -40,8 +40,11 @@ func run() (exitCode int) {
 		}()
 	}
 	mode := "interactive"
-	if opts.prompt != "" {
+	switch {
+	case opts.prompt != "":
 		mode = "one_shot"
+	case opts.script != "":
+		mode = "script"
 	}
 	logLocal(slog.LevelInfo, "process_started", "mode", mode)
 
@@ -78,6 +81,15 @@ func run() (exitCode int) {
 			fmt.Fprintln(os.Stderr, "sparktea: flush telemetry:", err)
 		}
 	}()
+
+	if opts.script != "" {
+		if err := runScript(ctx, options, opts); err != nil {
+			logLocalError("script_failed", err)
+			fmt.Fprintln(os.Stderr, "sparktea:", err)
+			return 1
+		}
+		return 0
+	}
 
 	if opts.prompt != "" {
 		option, err := resolveModel(options, opts.model)

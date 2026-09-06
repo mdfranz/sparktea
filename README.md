@@ -131,6 +131,41 @@ provider deprecated), as opposed to a bug in sparktea's own request
 building. Off by default since it's one call per catalog entry rather than
 one per provider, so it's the slowest and priciest check here.
 
+### Scripting multi-turn sequences
+
+`-prompt` only covers one turn. Pass `-script <file>` instead to run a
+sequence of prompts and commands non-interactively, sharing one growing
+conversation across turns — useful for deterministically reproducing a bug
+that only shows up after a specific sequence (e.g. "a plain turn, then
+`/search on`, then another turn on that same history") instead of
+hand-typing it into the TUI every time:
+
+```console
+sparktea -model anthropic:claude-opus-5 -script repro.sparktea
+```
+
+```text
+# repro.sparktea — lines starting with # or blank lines are ignored
+Prove that there are infinitely many primes.
+/search on
+Thanks — now search for the current largest known prime and summarize it.
+/model google:gemini-3.8-flash
+One more question, same conversation, now on a different provider.
+```
+
+Each non-command line is a prompt, run as one full turn. Commands between
+prompts change state for every turn from that point on:
+
+- `/model <spec>` switches models mid-script (same spec syntax as `-model`),
+  keeping history intact — for reproducing `/model`-switch bugs.
+- `/search on`/`off` and `/code on`/`off` toggle native web search and Code
+  Mode, same as the TUI's commands.
+- `/clear` discards history, starting a fresh conversation without exiting.
+
+Output follows the same stdout/stderr split as `-prompt`: each turn's answer
+streams to stdout, everything else (which turn is running, thinking, tool
+calls, model switches) to stderr.
+
 ## Local logs
 
 sparktea always writes operational diagnostics to
