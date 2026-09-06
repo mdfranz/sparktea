@@ -14,6 +14,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/mdfranz/sparktea/codemode"
 )
 
@@ -823,9 +824,18 @@ func collectWebSearchSources(before, after []ai.ModelMessage) string {
 	// The URL goes on its own line, indented under the title, rather than
 	// sharing one line as "Title — URL": the transcript viewport clips
 	// (doesn't wrap) lines wider than the pane, and a long title easily
-	// pushes the URL itself — the part worth being able to read or select
+	// pushed the URL itself — the part worth being able to read or select
 	// in full — past the edge and off screen. On its own line the URL gets
-	// the pane's full width, so only unusually long URLs still truncate.
+	// the pane's full width, so only unusually long URLs still clip.
+	//
+	// Even those are wrapped in an OSC 8 hyperlink (see the hyperlink
+	// helper) rather than left as plain text: lipgloss's own truncation
+	// (charmbracelet/x/ansi.Truncate) is hyperlink-aware and always closes
+	// the sequence properly, even mid-link, so a clipped entry still opens
+	// the full URL in terminals that support OSC 8 — it just can't be read
+	// in full anymore. Terminals without OSC 8 support ignore the escape
+	// codes and show the (possibly clipped) URL as plain text, same as
+	// before.
 	var b strings.Builder
 	b.WriteString("🔗 Sources:")
 	for _, r := range results {
@@ -834,7 +844,7 @@ func collectWebSearchSources(before, after []ai.ModelMessage) string {
 			b.WriteString(r.title)
 			b.WriteString("\n    ")
 		}
-		b.WriteString(r.url)
+		b.WriteString(hyperlink(r.url, r.url))
 	}
 	return b.String()
 }
@@ -868,6 +878,16 @@ func hasWebFetchResult(before, after []ai.ModelMessage) bool {
 
 func successfulToolReturn(outcome ai.ToolReturnOutcome) bool {
 	return outcome == "" || outcome == ai.ToolReturnOutcomeSuccess
+}
+
+// hyperlink wraps text in an OSC 8 escape sequence so terminals that support
+// it (most modern ones — iTerm2, Kitty, WezTerm, VTE-based terminals,
+// Windows Terminal) make it clickable and open url, regardless of whether
+// text itself later gets truncated to fit the pane. Terminals without OSC 8
+// support just ignore the escape codes and show text plainly — no capability
+// probe needed to fall back safely.
+func hyperlink(url, text string) string {
+	return ansi.SetHyperlink(url) + text + ansi.ResetHyperlink()
 }
 
 func renderPlainEntry(role, text string) string {

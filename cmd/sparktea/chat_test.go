@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	ai "github.com/Kludex/pydantic-ai-go/ai"
+	"github.com/charmbracelet/x/ansi"
 )
 
 func TestFormatCount(t *testing.T) {
@@ -140,6 +141,28 @@ func TestExtractWebSearchResults(t *testing.T) {
 	}
 }
 
+// TestHyperlinkSurvivesTruncation exercises the exact claim in
+// collectWebSearchSources' comment: lipgloss/viewport truncate long lines
+// with ansi.Truncate (see (Style).Render's MaxWidth handling), and that
+// truncation is hyperlink-aware -- clipping the *visible* URL text still
+// leaves a well-formed, complete OSC 8 sequence pointing at the full URL.
+func TestHyperlinkSurvivesTruncation(t *testing.T) {
+	const full = "https://example.com/a/very/long/path/that/will/not/fit/on/one/narrow/line"
+	link := hyperlink(full, full)
+
+	clipped := ansi.Truncate(link, 20, "")
+
+	if !strings.Contains(clipped, "\x1b]8;;"+full+"\x07") {
+		t.Errorf("truncated hyperlink lost its href to the full URL: %q", clipped)
+	}
+	if !strings.HasSuffix(clipped, "\x1b]8;;\x07") {
+		t.Errorf("truncated hyperlink was not properly closed, would leak into later text: %q", clipped)
+	}
+	if visible := ansi.Strip(clipped); len(visible) >= len(full) {
+		t.Errorf("expected the visible text to actually be clipped, got %d chars", len(visible))
+	}
+}
+
 func TestCollectWebSearchSources(t *testing.T) {
 	before := []ai.ModelMessage{ai.ModelRequest{}}
 
@@ -159,7 +182,7 @@ func TestCollectWebSearchSources(t *testing.T) {
 			},
 		})
 		got := collectWebSearchSources(before, after)
-		if want := "🔗 Sources:\n  · Example A\n    https://example.com/a"; got != want {
+		if want := "🔗 Sources:\n  · Example A\n    " + hyperlink("https://example.com/a", "https://example.com/a"); got != want {
 			t.Errorf("collectWebSearchSources() = %q, want %q", got, want)
 		}
 	})
@@ -174,7 +197,7 @@ func TestCollectWebSearchSources(t *testing.T) {
 			},
 		})
 		got := collectWebSearchSources(before, after)
-		if want := "🔗 Sources:\n  · Example B\n    https://example.com/b"; got != want {
+		if want := "🔗 Sources:\n  · Example B\n    " + hyperlink("https://example.com/b", "https://example.com/b"); got != want {
 			t.Errorf("duplicate urls should collapse to one entry, got %q, want %q", got, want)
 		}
 	})
