@@ -27,6 +27,30 @@ func TestFormatCount(t *testing.T) {
 	}
 }
 
+func TestGetCommandURL(t *testing.T) {
+	for _, rawURL := range []string{
+		"https://example.com/article",
+		"http://example.com:8080/a?b=c",
+	} {
+		got, err := getCommandURL([]string{"/get", rawURL})
+		if err != nil || got != rawURL {
+			t.Errorf("getCommandURL(%q) = %q, %v", rawURL, got, err)
+		}
+	}
+
+	for _, fields := range [][]string{
+		nil,
+		{"/get"},
+		{"/get", "ftp://example.com/file"},
+		{"/get", "example.com/no-scheme"},
+		{"/get", "https://example.com", "extra"},
+	} {
+		if _, err := getCommandURL(fields); err == nil {
+			t.Errorf("getCommandURL(%q) succeeded, want usage error", fields)
+		}
+	}
+}
+
 func TestFormatUsageCompact(t *testing.T) {
 	if got := formatUsageCompact(ai.Usage{}); got != "" {
 		t.Errorf("zero-value Usage should render empty for the header before any turn completes, got %q", got)
@@ -161,4 +185,40 @@ func TestCollectWebSearchSources(t *testing.T) {
 			t.Errorf("a turn with no search results should yield no sources, got %q", got)
 		}
 	})
+}
+
+func TestHasWebFetchResult(t *testing.T) {
+	before := []ai.ModelMessage{ai.ModelRequest{}}
+
+	if hasWebFetchResult(before, before) {
+		t.Error("unchanged history should not contain a newly fetched page")
+	}
+
+	local := append(before, ai.ModelRequest{Parts: []ai.RequestPart{
+		ai.ToolReturnPart{ToolName: "web_fetch", Content: ai.WebFetchResult{URL: "https://example.com"}},
+	}})
+	if !hasWebFetchResult(before, local) {
+		t.Error("local web-fetch return was not detected")
+	}
+
+	native := append(before, ai.ModelResponse{Parts: []ai.ResponsePart{
+		ai.NativeToolReturnPart{ToolName: "web_fetch", ToolKind: ai.ToolPartKindWebFetch},
+	}})
+	if !hasWebFetchResult(before, native) {
+		t.Error("native web-fetch return was not detected")
+	}
+
+	other := append(before, ai.ModelRequest{Parts: []ai.RequestPart{
+		ai.ToolReturnPart{ToolName: "other"},
+	}})
+	if hasWebFetchResult(before, other) {
+		t.Error("unrelated tool return was reported as a fetch")
+	}
+
+	failed := append(before, ai.ModelRequest{Parts: []ai.RequestPart{
+		ai.ToolReturnPart{ToolName: "web_fetch", Outcome: ai.ToolReturnOutcomeFailed},
+	}})
+	if hasWebFetchResult(before, failed) {
+		t.Error("failed web fetch was reported as a retained page")
+	}
 }
