@@ -20,7 +20,7 @@ import (
 // grows with pasted or wrapped text (so multi-line prompts stay visible) but
 // never eats the whole screen.
 const (
-	minInputHeight = 1
+	minInputHeight = 2
 	maxInputHeight = 6
 )
 
@@ -52,7 +52,7 @@ var (
 // user/assistant turns, just rendered and stored separately (see
 // chatModel.activityEntries).
 type transcriptEntry struct {
-	role string // "user", "assistant", "system", "thinking", or "tool"
+	role string // "user", "assistant", "system", "thinking", "tool", or "error"
 	text string
 }
 
@@ -79,6 +79,28 @@ func dividerColumn(height int) string {
 	lines := make([]string, height)
 	for i := range lines {
 		lines[i] = line
+	}
+	return strings.Join(lines, "\n")
+}
+
+// padInputBackground recolors every line in view (already-rendered, ANSI
+// codes and all) so it reads as one solid background band all the way to
+// width. bubbles' textarea already pads each row out to its own configured
+// width — but with plain, uncolored spaces (its internal viewport does its
+// own Width-based reflow with a colorless style), and several rows besides
+// (the placeholder line, filler rows) never apply the cursor line's
+// background at all. Either way the line is already exactly width wide by
+// the time it gets here, so appending more padding is a no-op; stripping
+// whatever trailing plain spaces are already there and regenerating that
+// same run under bg is what actually recolors it.
+func padInputBackground(view string, width int, bg lipgloss.TerminalColor) string {
+	fill := lipgloss.NewStyle().Background(bg)
+	lines := strings.Split(view, "\n")
+	for i, line := range lines {
+		trimmed := strings.TrimRight(line, " ")
+		if pad := width - lipgloss.Width(trimmed); pad > 0 {
+			lines[i] = trimmed + fill.Render(strings.Repeat(" ", pad))
+		}
 	}
 	return strings.Join(lines, "\n")
 }
@@ -182,7 +204,6 @@ type chatModel struct {
 	codeEnabled        bool
 	codeModeCapability *codemode.CodeMode
 
-	err           error
 	width, height int
 	ready         bool
 }
@@ -216,6 +237,17 @@ func newChatModel(option modelOption, width, height int) (*chatModel, tea.Cmd) {
 	// textarea; ctrl+j is the escape hatch for a literal newline.
 	ta.KeyMap.InsertNewline.SetKeys("ctrl+j")
 	ta.Focus()
+	// bubbles' textarea only backgrounds the row the cursor is actually on
+	// (FocusedStyle.CursorLine) — every other visible row (the filler rows
+	// below short input, see EndOfBufferCharacter) stays unstyled, so a
+	// tall-but-mostly-empty box shows the highlight on one line and bare
+	// terminal background everywhere else. Reusing CursorLine's own
+	// background for EndOfBuffer too makes the whole box read as one solid
+	// band regardless of how many lines are actually typed — same color
+	// bubbles already chose, just applied consistently.
+	if bg := ta.FocusedStyle.CursorLine.GetBackground(); bg != nil {
+		ta.FocusedStyle.EndOfBuffer = ta.FocusedStyle.EndOfBuffer.Background(bg)
+	}
 
 	sp := spinner.New()
 	sp.Spinner = spinner.Dot
@@ -242,7 +274,11 @@ func newChatModel(option modelOption, width, height int) (*chatModel, tea.Cmd) {
 // which also re-renders the whole transcript at that width.
 func (m *chatModel) setSize(width, height int) {
 	m.width, m.height = width, height
-	m.input.SetWidth(width - 4)
+	// SetWidth already accounts for the prompt's own width internally (see
+	// its doc comment) — passing width here, not width minus some margin,
+	// is what makes the box (and its background band) reach the terminal's
+	// actual right edge instead of stopping a few columns short.
+	m.input.SetWidth(width)
 
 	inputHeight := clampInputHeight(m.input.LineCount())
 	m.input.SetHeight(inputHeight)
@@ -328,7 +364,6 @@ func (m *chatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.input.Reset()
 					m.adjustInputHeight()
 					m.streaming = true
-					m.err = nil
 					m.refreshViewport()
 					cmds = append(cmds, m.startStream(prompt), m.spinner.Tick)
 				}
@@ -382,8 +417,14 @@ func (m *chatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case streamErrMsg:
 		m.streaming = false
-		m.err = msg.err
 		m.flushCurrentTurn()
+		// Errors go into the main transcript, same as any other turn
+		// result, rather than a status-line flash that disappears the next
+		// time status changes — a request error (a bad model ID, a 400
+		// from a provider) is as much a part of the conversation's history
+		// as the answer would have been.
+		m.appendEntry("error", msg.err.Error())
+		m.refreshViewport()
 		return m, nil
 
 	case spinner.TickMsg:
@@ -477,8 +518,6 @@ func (m *chatModel) View() string {
 	}
 	if m.streaming {
 		status = fmt.Sprintf("%s thinking…", m.spinner.View())
-	} else if m.err != nil {
-		status = errorStyle.Render("error: " + m.err.Error())
 	}
 
 	body := m.viewport.View()
@@ -487,10 +526,18 @@ func (m *chatModel) View() string {
 			m.viewport.View(), dividerColumn(m.viewport.Height), m.activityViewport.View())
 	}
 
+	// See padInputBackground and the EndOfBuffer tweak in newChatModel:
+	// together they make the input box read as one solid background band
+	// full width and full height, not just the cursor's own row.
+	inputView := m.input.View()
+	if bg := m.input.FocusedStyle.CursorLine.GetBackground(); bg != nil {
+		inputView = padInputBackground(inputView, m.width, bg)
+	}
+
 	return lipgloss.JoinVertical(lipgloss.Left,
 		header,
 		body,
-		m.input.View(),
+		inputView,
 		status,
 	)
 }
@@ -786,6 +833,10 @@ func writeEntry(b *strings.Builder, role, text string) {
 		b.WriteString(thinkingStyle.Render(text))
 	case "tool":
 		b.WriteString(toolStyle.Render(text))
+	case "error":
+		b.WriteString(errorStyle.Render("Error"))
+		b.WriteString("\n")
+		b.WriteString(errorStyle.Render(text))
 	default:
 		b.WriteString(assistantStyle.Render("Assistant"))
 		b.WriteString("\n")
@@ -840,7 +891,6 @@ func (m *chatModel) runCommand(line string) tea.Cmd {
 		m.transcript = nil
 		m.historyRendered = ""
 		m.sessionUsage = ai.Usage{}
-		m.err = nil
 		m.note("History cleared.")
 		logLocal(slog.LevelInfo, "history_cleared")
 
@@ -922,7 +972,6 @@ func (m *chatModel) runCommand(line string) tea.Cmd {
 		m.transcript = transcriptFromMessages(messages)
 		m.rebuildHistory()
 		m.sessionUsage = ai.Usage{}
-		m.err = nil
 		m.note("loaded session from " + path)
 		logLocal(slog.LevelInfo, "session_loaded")
 
