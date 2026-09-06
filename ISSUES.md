@@ -37,7 +37,10 @@ tied to search itself, so easy to misdiagnose as a search bug.
 
 ### [#3](https://github.com/Kludex/pydantic-ai-go/issues/3) — Google: `ai.ThinkingPart` missing cross-provider guard
 
-**Status: open, unfixed.**
+**Status: fix filed, [PR #6](https://github.com/Kludex/pydantic-ai-go/pull/6), pending merge.**
+Verified live against the real Gemini API via sparktea (Claude turn with
+real thinking content, `/model` switch to `gemini-3.8-flash`, another turn
+on the same history) — confirmed via local logs and Logfire traces.
 
 `google.go:874-879` forwards any `ai.ThinkingPart` into a Gemini request
 unconditionally. Compare `NativeToolCallPart`/`NativeToolReturnPart` a few
