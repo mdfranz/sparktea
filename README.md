@@ -293,17 +293,11 @@ otherwise leave it out, since an adapter without that interface has any
 
 ## Updating pydantic-ai-go
 
-`pydantic-ai-go` is pulled from its public GitHub repo as a normal Go module
-dependency (no tagged releases yet, so `go.mod` pins a pseudo-version off the
-latest commit on `main`). To pick up upstream changes:
+`pydantic-ai-go` is a normal Go module dependency, pinned to a tagged
+release in `go.mod` (currently v0.4.0). To move to a newer release:
 
 ```console
-go get github.com/Kludex/pydantic-ai-go/ai@main \
-  github.com/Kludex/pydantic-ai-go/ai/models/openrouter@main \
-  github.com/Kludex/pydantic-ai-go/ai/models/google@main \
-  github.com/Kludex/pydantic-ai-go/ai/models/anthropic@main \
-  github.com/Kludex/pydantic-ai-go/ai/models/mistral@main \
-  github.com/Kludex/pydantic-ai-go/ai/models/openai@main
+go get github.com/Kludex/pydantic-ai-go@<version>
 go mod tidy
 ```
 

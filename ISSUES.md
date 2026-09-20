@@ -2,7 +2,8 @@
 
 Tracking known bugs in dependencies that affect sparktea but are fixed
 upstream, not here. Update the status line when an issue closes, and check
-whether sparktea still needs to work around it.
+whether sparktea still needs to work around it. All four issues below are
+fixed in pydantic-ai-go v0.4.0 (2026-09-14), which sparktea now uses.
 
 ## pydantic-ai-go: thinking-block replay
 
@@ -11,12 +12,12 @@ extended-thinking content across two successful turns; the next request
 that replayed that history broke, two different ways depending on what
 changed about the request. Confirmed via Logfire traces (exact request/response),
 not just local logs (which never retain error bodies). Root-caused by
-reading the pinned pydantic-ai-go source (`v0.0.0-20260904230829-3c976cdd1116`);
-not yet fixed upstream.
+reading the pydantic-ai-go source at `v0.0.0-20260904230829-3c976cdd1116`;
+both fixed upstream in v0.4.0.
 
 ### [#2](https://github.com/Kludex/pydantic-ai-go/issues/2) — Anthropic: replayed thinking block drops the required `thinking` field when empty
 
-**Status: fix filed, [PR #7](https://github.com/Kludex/pydantic-ai-go/pull/7), pending merge.**
+**Status: fixed in v0.4.0 via [PR #7](https://github.com/Kludex/pydantic-ai-go/pull/7), merged 2026-09-14.**
 Verified live against the real Anthropic API via sparktea's new `-script`
 (see README's "Scripting multi-turn sequences"): a turn with no tools
 generated real thinking content, then `/search on` and another turn on that
@@ -48,7 +49,7 @@ tied to search itself, so easy to misdiagnose as a search bug.
 
 ### [#3](https://github.com/Kludex/pydantic-ai-go/issues/3) — Google: `ai.ThinkingPart` missing cross-provider guard
 
-**Status: fix filed, [PR #6](https://github.com/Kludex/pydantic-ai-go/pull/6), pending merge.**
+**Status: fixed in v0.4.0 via [PR #6](https://github.com/Kludex/pydantic-ai-go/pull/6), merged 2026-09-14.**
 Verified live against the real Gemini API via sparktea (Claude turn with
 real thinking content, `/model` switch to `gemini-3.8-flash`, another turn
 on the same history) — confirmed via local logs and Logfire traces.
@@ -79,7 +80,7 @@ then `/search off` broke the very next turn. Confirmed via Logfire traces.
 
 ### [#8](https://github.com/Kludex/pydantic-ai-go/issues/8) — Anthropic: code-execution container ID reused without the tool attached, 400s
 
-**Status: fix filed, [PR #9](https://github.com/Kludex/pydantic-ai-go/pull/9), pending merge.**
+**Status: fixed in v0.4.0 via [PR #9](https://github.com/Kludex/pydantic-ai-go/pull/9), merged 2026-09-14.**
 Verified live against the real API via sparktea, confirmed via local logs
 and Logfire.
 
@@ -108,7 +109,7 @@ Confirmed via Logfire traces.
 
 ### [#4](https://github.com/Kludex/pydantic-ai-go/issues/4) — OpenAI Responses stream: `response.web_search_call.*` progress events not recognized, crashes the run
 
-**Status: open, unfixed.**
+**Status: closed upstream 2026-09-14 by [PR #20](https://github.com/Kludex/pydantic-ai-go/pull/20) (v0.4.0 release). Not yet re-verified in sparktea; `/search` is still disabled for OpenAI.**
 
 `responses_stream.go:714-731`'s event-type switch hardcodes an allowlist of
 provider progress events safe to ignore per tool family —
@@ -137,17 +138,9 @@ the Responses stream parser instead.
 
 ## Verifying a fix
 
-Once an issue closes, `go get github.com/Kludex/pydantic-ai-go/ai@main
-... && go mod tidy` (see README's "Updating pydantic-ai-go") and re-run the
-matching repro above. #2, #3, and #8 need no sparktea-side change either
-way — all three are in the provider adapters' request serialization, not in
-how sparktea builds or replays `m.history`. #4 does: once fixed, add
+`go get github.com/Kludex/pydantic-ai-go@<version> && go mod tidy` (see
+README's "Updating pydantic-ai-go") and re-run the matching repro above.
+#2, #3, and #8 needed no sparktea-side change — all three are in the
+provider adapters' request serialization, not in how sparktea builds or
+replays `m.history`. #4 does: once verified live on v0.4.0, add
 `providerOpenAI` back to `supportsNativeWebSearch()` in `models.go`.
-
-**Current temporary state:** while #2/#3/#8 are pending merge, `go.mod`
-`replace`s `github.com/Kludex/pydantic-ai-go` with a branch on
-`github.com/mdfranz/pydantic-ai-go` (a fork) combining all three fixes, so
-sparktea itself isn't blocked on any of them merging. Once each PR merges
-upstream, drop it from that combined branch (or once all three have merged,
-drop the `replace` entirely and bump the pinned version in `require`
-instead) — see README's "Updating pydantic-ai-go".
