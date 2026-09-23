@@ -1043,7 +1043,16 @@ func (m *chatModel) runCommand(line string) tea.Cmd {
 		logLocal(slog.LevelInfo, "activity_panel_toggled", "enabled", m.activityEnabled)
 
 	case "/save":
-		path, err := writeSessionFile(arg, m.history)
+		path, err := writeSessionFile(arg, sessionSnapshot{
+			Messages:        m.history,
+			Transcript:      m.transcript,
+			Activity:        m.activityEntries,
+			Option:          m.option,
+			Usage:           m.sessionUsage,
+			SearchEnabled:   m.searchEnabled,
+			CodeEnabled:     m.codeEnabled,
+			ActivityEnabled: m.activityEnabled,
+		})
 		if err != nil {
 			logLocalError("session_save_failed", err)
 			m.note("save failed: " + err.Error())
@@ -1053,16 +1062,31 @@ func (m *chatModel) runCommand(line string) tea.Cmd {
 		m.note("saved session to " + path)
 
 	case "/load":
-		messages, path, err := readSessionFile(arg)
+		snapshot, path, err := readSessionFile(arg)
 		if err != nil {
 			logLocalError("session_load_failed", err)
 			m.note("load failed: " + err.Error())
 			break
 		}
-		m.history = messages
-		m.transcript = transcriptFromMessages(messages)
-		m.rebuildHistory()
-		m.sessionUsage = ai.Usage{}
+		m.history = snapshot.Messages
+		m.transcript = snapshot.Transcript
+		m.activityEntries = snapshot.Activity
+		if snapshot.HasState {
+			m.option = snapshot.Option
+			m.agent = newAgentFor(snapshot.Option)
+			m.sessionUsage = snapshot.Usage
+			m.searchEnabled = snapshot.SearchEnabled
+			m.codeEnabled = snapshot.CodeEnabled
+			m.activityEnabled = snapshot.ActivityEnabled
+		} else {
+			// Legacy session files contain only the pydantic-ai-go message
+			// array, so retain the current model and toggles and rebuild the
+			// visible text from the history as before.
+			m.transcript = transcriptFromMessages(snapshot.Messages)
+			m.activityEntries = nil
+			m.sessionUsage = ai.Usage{}
+		}
+		m.setSize(m.width, m.height)
 		m.note("loaded session from " + path)
 		logLocal(slog.LevelInfo, "session_loaded")
 

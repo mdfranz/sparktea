@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -14,6 +16,40 @@ import (
 const defaultSessionName = "default"
 
 var sessionNamePattern = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
+
+const sessionFileVersion = 1
+
+// sessionSnapshot is the state needed to continue and display a conversation
+// after loading it, not just the provider message history.
+type sessionSnapshot struct {
+	Messages        []ai.ModelMessage
+	Transcript      []transcriptEntry
+	Activity        []transcriptEntry
+	Option          modelOption
+	Usage           ai.Usage
+	SearchEnabled   bool
+	CodeEnabled     bool
+	ActivityEnabled bool
+	HasState        bool
+}
+
+type sessionFile struct {
+	Version         int               `json:"version"`
+	History         json.RawMessage   `json:"history"`
+	Transcript      []transcriptEntry `json:"transcript"`
+	Activity        []transcriptEntry `json:"activity"`
+	Model           sessionModel      `json:"model"`
+	Usage           ai.Usage          `json:"usage"`
+	SearchEnabled   bool              `json:"search_enabled"`
+	CodeEnabled     bool              `json:"code_enabled"`
+	ActivityEnabled bool              `json:"activity_enabled"`
+}
+
+type sessionModel struct {
+	Label    string   `json:"label"`
+	Provider provider `json:"provider"`
+	ModelID  string   `json:"model_id"`
+}
 
 // sessionsDir is where /save and /load keep conversation history, one JSON
 // file per named session.
@@ -39,14 +75,29 @@ func sessionPath(name string) (string, error) {
 	return filepath.Join(dir, name+".json"), nil
 }
 
-// writeSessionFile serializes messages with pydantic-ai-go's own message
-// codec and writes it to the named session file.
-func writeSessionFile(name string, messages []ai.ModelMessage) (string, error) {
+// writeSessionFile serializes the provider history with pydantic-ai-go's
+// message codec and stores sparktea's display and session state alongside it.
+func writeSessionFile(name string, snapshot sessionSnapshot) (string, error) {
 	path, err := sessionPath(name)
 	if err != nil {
 		return "", err
 	}
-	data, err := ai.MarshalMessages(messages)
+	history, err := ai.MarshalMessages(snapshot.Messages)
+	if err != nil {
+		return "", fmt.Errorf("encode session: %w", err)
+	}
+	doc := sessionFile{
+		Version:         sessionFileVersion,
+		History:         history,
+		Transcript:      snapshot.Transcript,
+		Activity:        snapshot.Activity,
+		Model:           sessionModel{Label: snapshot.Option.label, Provider: snapshot.Option.provider, ModelID: snapshot.Option.modelID},
+		Usage:           snapshot.Usage,
+		SearchEnabled:   snapshot.SearchEnabled,
+		CodeEnabled:     snapshot.CodeEnabled,
+		ActivityEnabled: snapshot.ActivityEnabled,
+	}
+	data, err := json.MarshalIndent(doc, "", "  ")
 	if err != nil {
 		return "", fmt.Errorf("encode session: %w", err)
 	}
@@ -59,24 +110,52 @@ func writeSessionFile(name string, messages []ai.ModelMessage) (string, error) {
 	return path, nil
 }
 
-// readSessionFile loads a named session file back into message history.
-func readSessionFile(name string) ([]ai.ModelMessage, string, error) {
+// readSessionFile loads a session file. It also accepts the legacy raw message
+// arrays written before sparktea session metadata was added.
+func readSessionFile(name string) (sessionSnapshot, string, error) {
 	path, err := sessionPath(name)
 	if err != nil {
-		return nil, "", err
+		return sessionSnapshot{}, "", err
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return nil, "", fmt.Errorf("no saved session named %q", strings.TrimSuffix(filepath.Base(path), ".json"))
+			return sessionSnapshot{}, "", fmt.Errorf("no saved session named %q", strings.TrimSuffix(filepath.Base(path), ".json"))
 		}
-		return nil, "", err
+		return sessionSnapshot{}, "", err
 	}
-	messages, err := ai.UnmarshalMessages(data)
+	if len(bytes.TrimSpace(data)) > 0 && bytes.TrimSpace(data)[0] == '[' {
+		messages, err := ai.UnmarshalMessages(data)
+		if err != nil {
+			return sessionSnapshot{}, "", fmt.Errorf("decode session: %w", err)
+		}
+		return sessionSnapshot{Messages: messages, Transcript: transcriptFromMessages(messages)}, path, nil
+	}
+	var doc sessionFile
+	if err := json.Unmarshal(data, &doc); err != nil {
+		return sessionSnapshot{}, "", fmt.Errorf("decode session: %w", err)
+	}
+	if doc.Version != sessionFileVersion {
+		return sessionSnapshot{}, "", fmt.Errorf("unsupported session version %d", doc.Version)
+	}
+	if len(doc.History) == 0 {
+		return sessionSnapshot{}, "", errors.New("session has no message history")
+	}
+	messages, err := ai.UnmarshalMessages(doc.History)
 	if err != nil {
-		return nil, "", fmt.Errorf("decode session: %w", err)
+		return sessionSnapshot{}, "", fmt.Errorf("decode session history: %w", err)
 	}
-	return messages, path, nil
+	return sessionSnapshot{
+		Messages:        messages,
+		Transcript:      doc.Transcript,
+		Activity:        doc.Activity,
+		Option:          modelOption{label: doc.Model.Label, provider: doc.Model.Provider, modelID: doc.Model.ModelID},
+		Usage:           doc.Usage,
+		SearchEnabled:   doc.SearchEnabled,
+		CodeEnabled:     doc.CodeEnabled,
+		ActivityEnabled: doc.ActivityEnabled,
+		HasState:        true,
+	}, path, nil
 }
 
 // transcriptFromMessages rebuilds display transcript entries from loaded
