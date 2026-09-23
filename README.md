@@ -249,11 +249,11 @@ Sandboxing guarantees:
 - Each run is capped at 5 seconds wall-clock, 64 MiB memory, and 100 stack
   frames of recursion, so a runaway script can't stall the TUI.
 
-(`codemode/codemode_test.go` pins the module/formatting behavior above down
-as regression tests against the exact pinned Monty commit, rather than
-trusting [Monty's own limitations doc](https://pydantic.dev/docs/monty/limitations/)
-blindly — that page and this pin already disagree on one point: `.format()`
-works here even though the doc says it doesn't.)
+`codemode/codemode_test.go` covers both the current binding and an acceptance
+matrix for the latest upstream Monty language features documented in
+[Monty's limitations guide](https://pydantic.dev/docs/monty/limitations/).
+The newer feature cases require gomonty to be refreshed to that Monty version;
+older native runtimes may still run simple scripts while failing those cases.
 
 The last expression's value comes back automatically (no `print()` needed);
 `print()` output is captured too. A syntax error, a runtime exception, or a
