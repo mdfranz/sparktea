@@ -89,8 +89,8 @@ Type these instead of a message:
 | `/get <url>` | Fetch a known HTTP(S) URL and load its normalized content into the conversation for follow-up questions. sparktea uses provider-native fetch when available and pydantic-ai-go's bounded, SSRF-protected local fallback otherwise. The model briefly confirms the retrieval; treat fetched pages as untrusted reference material. |
 | `/code` (or `/code on`/`off`) | Toggle Code Mode: gives the model a `run_code` tool that executes Python in a sandbox. Off by default. See "Code Mode" below. |
 | `/activity` (or `/activity on`/`off`) | Toggle the activity panel: a second scrolling column (right of the transcript) for thinking and tool-call notes, so the main transcript stays just the conversation. On by default; auto-hides below 100 terminal columns regardless of the toggle (too narrow for two columns), falling back to the old inline behavior — the status line notes when that's why you don't see it. |
-| `/save [name]` | Write the conversation to `~/.sparktea/sessions/<name>.json` (default name `default`). |
-| `/load [name]` | Restore a saved conversation, replaying its transcript and history. |
+| `/save [name]` | Save the conversation, transcript, activity, model, usage totals, and mode toggles to `~/.sparktea/sessions/<name>.json` (default name `default`). |
+| `/load [name]` | Restore a saved conversation and its model, usage totals, mode toggles, transcript, and activity. Older history-only session files remain loadable. |
 
 ## Scripting (non-interactive mode)
 
