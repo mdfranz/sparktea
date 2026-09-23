@@ -84,6 +84,6 @@ require (
 	google.golang.org/protobuf v1.36.12 // indirect
 )
 
-replace github.com/ewhauser/gomonty => github.com/mdfranz/gomonty v0.0.0-20260905152908-2a387f1a0338
+replace github.com/ewhauser/gomonty => ../gomonty
 
 replace github.com/Kludex/pydantic-ai-go => github.com/mdfranz/pydantic-ai-go v0.0.0-20260906201830-b92c569373db
