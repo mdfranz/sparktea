@@ -43,6 +43,8 @@ var (
 	systemStyle    = lipgloss.NewStyle().Italic(true).Faint(true)
 	thinkingStyle  = lipgloss.NewStyle().Italic(true).Faint(true).Foreground(lipgloss.Color("141"))
 	toolStyle      = lipgloss.NewStyle().Faint(true).Foreground(lipgloss.Color("75"))
+	codeTitleStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("42"))
+	codeTextStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("81"))
 	errorStyle     = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("196"))
 	helpStyle      = lipgloss.NewStyle().Faint(true)
 	// headerStyle carries no background of its own — View() applies the same
@@ -155,6 +157,7 @@ type (
 	streamDeltaMsg         string
 	streamThinkingDeltaMsg string
 	streamNoteMsg          string
+	streamCodeMsg          string
 	streamDoneMsg          struct {
 		messages []ai.ModelMessage
 		usage    ai.Usage
@@ -276,7 +279,7 @@ func newChatModel(option modelOption, width, height int) (*chatModel, tea.Cmd) {
 		activityViewport:   viewport.New(activityMinPanelWidth, max(height-5, 1)),
 		activityEnabled:    true,
 		spinner:            sp,
-		codeModeCapability: codemode.New(),
+		codeModeCapability: newCodeMode(),
 	}
 	cm.setSize(width, height)
 	return cm, textarea.Blink
@@ -346,6 +349,31 @@ func (m *chatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.setSize(msg.Width, msg.Height)
 
 	case tea.KeyMsg:
+		// Keep activity-panel scrolling independent from the conversation
+		// input and transcript. Alt+arrows and Alt+PageUp/PageDown are
+		// explicit so ordinary typing/navigation remains unchanged.
+		if m.showActivity {
+			switch msg.String() {
+			case "alt+up":
+				m.activityViewport.LineUp(1)
+				return m, nil
+			case "alt+down":
+				m.activityViewport.LineDown(1)
+				return m, nil
+			case "alt+pgup":
+				m.activityViewport.PageUp()
+				return m, nil
+			case "alt+pgdown":
+				m.activityViewport.PageDown()
+				return m, nil
+			case "alt+home":
+				m.activityViewport.GotoTop()
+				return m, nil
+			case "alt+end":
+				m.activityViewport.GotoBottom()
+				return m, nil
+			}
+		}
 		switch msg.String() {
 		case "ctrl+c":
 			m.cancel()
@@ -385,6 +413,17 @@ func (m *chatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Batch(cmds...)
 		}
 
+	case tea.MouseMsg:
+		// The activity viewport is independent of the main viewport, so route
+		// wheel events by horizontal position instead of scrolling whichever
+		// panel happens to be updated last.
+		if m.showActivity && msg.Action == tea.MouseActionPress &&
+			(msg.Button == tea.MouseButtonWheelUp || msg.Button == tea.MouseButtonWheelDown) &&
+			msg.X >= m.width-m.activityViewport.Width {
+			m.activityViewport, _ = m.activityViewport.Update(msg)
+			return m, nil
+		}
+
 	case streamStartedMsg:
 		m.streamCh = msg.ch
 		return m, waitForStream(m.streamCh)
@@ -404,8 +443,8 @@ func (m *chatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, waitForStream(m.streamCh)
 
 	case streamNoteMsg:
-		// Native (web search) and Code Mode (run_code) tool-call notes go
-		// to the activity panel when it's shown, same as thinking — see
+		// Native tool-call notes go to the activity panel when it's shown,
+		// same as thinking — see
 		// chatModel.showActivity — and fall back to the main transcript
 		// (today's pre-activity-panel behavior) otherwise.
 		if m.showActivity {
@@ -415,6 +454,11 @@ func (m *chatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.appendEntry("system", string(msg))
 			m.refreshViewport()
 		}
+		return m, waitForStream(m.streamCh)
+
+	case streamCodeMsg:
+		m.appendEntry("code", string(msg))
+		m.refreshViewport()
 		return m, waitForStream(m.streamCh)
 
 	case streamDoneMsg:
@@ -528,6 +572,9 @@ func (m *chatModel) View() string {
 	}
 
 	status := helpStyle.Render("enter: send · ctrl+j: newline · /model /usage /clear /search /get /code /activity /save /load · esc/ctrl+c/ctrl+d: quit")
+	if m.showActivity {
+		status = helpStyle.Render("activity: wheel · alt+↑↓/PgUp/PgDn · alt+Home/End · ") + status
+	}
 	if m.searchEnabled && m.option.supportsNativeWebSearch() {
 		status = helpStyle.Render("🔎 web search on · ") + status
 	}
@@ -613,8 +660,11 @@ func (m *chatModel) refreshActivityViewport() {
 	if b == "" {
 		b = helpStyle.Render("Thinking and tool calls will appear here.")
 	}
+	followBottom := m.activityViewport.AtBottom()
 	m.activityViewport.SetContent(b)
-	m.activityViewport.GotoBottom()
+	if followBottom {
+		m.activityViewport.GotoBottom()
+	}
 }
 
 // appendActivityEntry adds a finalized entry to the activity panel
@@ -695,6 +745,9 @@ func (m *chatModel) rebuildHistory() {
 // answers go through glamour for markdown formatting; every other role
 // renders as plain styled text.
 func (m *chatModel) renderEntry(e transcriptEntry) string {
+	if e.role == "code" {
+		return renderAssistantCode(e.text, m.viewport.Width)
+	}
 	if e.role != "assistant" {
 		return renderPlainEntry(e.role, e.text)
 	}
@@ -703,6 +756,14 @@ func (m *chatModel) renderEntry(e transcriptEntry) string {
 	b.WriteString("\n")
 	b.WriteString(m.renderMarkdown(e.text))
 	return b.String()
+}
+
+func renderAssistantCode(source string, width int) string {
+	if width > 0 {
+		source = lipgloss.NewStyle().Width(width).Render(source)
+	}
+	title := lipgloss.NewStyle().Width(width).Render("🐍 Assistant code · Monty sandbox")
+	return codeTitleStyle.Render(title) + "\n" + codeTextStyle.Render(source)
 }
 
 // renderMarkdown renders text through glamour, falling back to the raw text
@@ -1200,9 +1261,7 @@ func (m *chatModel) startStreamWithWebFetch(prompt string, webFetch bool) tea.Cm
 				case ai.NativeToolCallPart:
 					ch <- streamNoteMsg("🔎 " + part.ToolName)
 				case ai.ToolCallPart:
-					if part.ToolName == codemode.ToolName {
-						ch <- streamNoteMsg("🐍 " + part.ToolName)
-					} else if part.ToolName == "web_fetch" {
+					if part.ToolName == "web_fetch" {
 						ch <- streamNoteMsg("🌐 " + part.ToolName)
 					}
 				}
@@ -1219,6 +1278,13 @@ func (m *chatModel) startStreamWithWebFetch(prompt string, webFetch bool) tea.Cm
 				}
 			case ai.FunctionToolCallEvent:
 				logLocal(slog.LevelInfo, "tool_started", "tool", e.Part.ToolName)
+				if e.Part.ToolName == codemode.ToolName {
+					if source, ok := recordMontyCode(e.Part.Args); ok {
+						ch <- streamCodeMsg(source)
+					} else {
+						ch <- streamNoteMsg("🐍 Assistant called Monty sandbox")
+					}
+				}
 			case ai.FunctionToolResultEvent:
 				switch part := e.Part.(type) {
 				case ai.ToolReturnPart:

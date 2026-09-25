@@ -10,6 +10,7 @@ require (
 	github.com/charmbracelet/lipgloss v1.1.1-0.20250404203927-76690c660834
 	github.com/charmbracelet/x/ansi v0.11.6
 	github.com/ewhauser/gomonty v0.0.14
+	github.com/ewhauser/gomonty/otelmonty v0.0.0-20260925005554-83220b6de2d3
 	go.opentelemetry.io/otel v1.46.0
 	go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp v1.46.0
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp v1.46.0
@@ -84,6 +85,8 @@ require (
 	google.golang.org/protobuf v1.36.12 // indirect
 )
 
-replace github.com/ewhauser/gomonty => ../gomonty
+replace github.com/ewhauser/gomonty => github.com/mdfranz/gomonty v0.0.16-0.20260925005554-83220b6de2d3
 
 replace github.com/Kludex/pydantic-ai-go => github.com/mdfranz/pydantic-ai-go v0.0.0-20260906201830-b92c569373db
+
+replace github.com/ewhauser/gomonty/otelmonty => github.com/mdfranz/gomonty/otelmonty v0.0.0-20260925005554-83220b6de2d3

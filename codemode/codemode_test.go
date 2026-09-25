@@ -11,6 +11,9 @@ import (
 
 	"github.com/Kludex/pydantic-ai-go/ai"
 	monty "github.com/ewhauser/gomonty"
+	"github.com/ewhauser/gomonty/otelmonty"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 )
 
 // runRaw runs code through a fresh CodeMode with the given limits
@@ -70,6 +73,40 @@ func TestRunCodeExpressionResult(t *testing.T) {
 	n, ok := got.(int64)
 	if !ok || n != 42 {
 		t.Fatalf("got %#v, want int64(42)", got)
+	}
+}
+
+func TestRunCodeTelemetryJoinsParentTrace(t *testing.T) {
+	recorder := tracetest.NewSpanRecorder()
+	provider := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(recorder))
+	defer provider.Shutdown(context.Background())
+	tracer := provider.Tracer("codemode-test")
+	ctx, parent := tracer.Start(context.Background(), "sparktea turn")
+
+	c := New(WithTelemetry(otelmonty.Handler{Tracer: tracer}, monty.TelemetryOptions{}))
+	result, err := c.handleRunCode(ctx, json.RawMessage(`{"code":"print('private output')\n40 + 2"}`))
+	parent.End()
+	if err != nil || result == nil {
+		t.Fatalf("run_code: result=%v err=%v", result, err)
+	}
+
+	var found bool
+	for _, span := range recorder.Ended() {
+		if span.Name() != "monty.run" {
+			continue
+		}
+		found = true
+		if span.Parent().SpanID() != parent.SpanContext().SpanID() {
+			t.Fatalf("monty.run parent = %s, want %s", span.Parent().SpanID(), parent.SpanContext().SpanID())
+		}
+		for _, attr := range span.Attributes() {
+			if attr.Key == "monty.output" {
+				t.Fatal("output recorded with RecordOutputs disabled")
+			}
+		}
+	}
+	if !found {
+		t.Fatal("missing monty.run span")
 	}
 }
 

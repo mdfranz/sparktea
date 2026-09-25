@@ -122,7 +122,7 @@ func runOnce(ctx context.Context, option modelOption, opts cliOptions) error {
 
 	var runOpts []ai.RunOption
 	if opts.code {
-		runOpts = append(runOpts, ai.WithRunCapabilities(codemode.New()))
+		runOpts = append(runOpts, ai.WithRunCapabilities(newCodeMode()))
 	}
 	searchEnabled := opts.search && option.supportsNativeWebSearch()
 	if opts.search && !searchEnabled {
@@ -181,6 +181,9 @@ func runTurn(
 			}
 		case ai.FunctionToolCallEvent:
 			logLocal(slog.LevelInfo, "tool_started", "tool", e.Part.ToolName)
+			if e.Part.ToolName == codemode.ToolName {
+				recordMontyCode(e.Part.Args)
+			}
 			// Args is fully assembled by the time this fires (right before
 			// execution), unlike the same ToolCallPart seen earlier via
 			// PartStartEvent, whose Args streams in over ToolCallPartDelta

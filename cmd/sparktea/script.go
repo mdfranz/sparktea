@@ -9,7 +9,6 @@ import (
 	"strings"
 
 	ai "github.com/Kludex/pydantic-ai-go/ai"
-	"github.com/mdfranz/sparktea/codemode"
 )
 
 // scriptStep is one parsed line of a -script file: either a command
@@ -95,7 +94,7 @@ func runScript(ctx context.Context, options []modelOption, opts cliOptions) erro
 		return err
 	}
 	agent := newAgentFor(option)
-	codeModeCapability := codemode.New()
+	codeModeCapability := newCodeMode()
 
 	var history []ai.ModelMessage
 	var searchEnabled, codeEnabled bool

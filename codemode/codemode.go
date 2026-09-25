@@ -47,7 +47,9 @@ func defaultLimits() *monty.ResourceLimits {
 // CodeMode is an ai.Capability adding a run_code tool that executes Python
 // in a Monty sandbox.
 type CodeMode struct {
-	limits *monty.ResourceLimits
+	limits           *monty.ResourceLimits
+	telemetry        monty.TelemetryHandler
+	telemetryOptions monty.TelemetryOptions
 }
 
 // Option configures a CodeMode built by New.
@@ -56,6 +58,14 @@ type Option func(*CodeMode)
 // WithLimits overrides the default resource limits.
 func WithLimits(l monty.ResourceLimits) Option {
 	return func(c *CodeMode) { c.limits = &l }
+}
+
+// WithTelemetry records Monty execution through the supplied handler.
+func WithTelemetry(handler monty.TelemetryHandler, opts monty.TelemetryOptions) Option {
+	return func(c *CodeMode) {
+		c.telemetry = handler
+		c.telemetryOptions = opts
+	}
 }
 
 // New builds a CodeMode capability with default (or overridden) limits.
@@ -134,8 +144,10 @@ func (c *CodeMode) handleRunCode(ctx context.Context, rawArgs json.RawMessage) (
 
 	var stdout strings.Builder
 	value, err := runner.Run(ctx, monty.RunOptions{
-		Print:  monty.WriterPrintCallback(&stdout),
-		Limits: c.limits,
+		Print:            monty.WriterPrintCallback(&stdout),
+		Limits:           c.limits,
+		Telemetry:        c.telemetry,
+		TelemetryOptions: c.telemetryOptions,
 	})
 	if err != nil {
 		// Runtime error (including a resource-limit violation) or a typing

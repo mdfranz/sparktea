@@ -9,6 +9,9 @@ import (
 	"strings"
 
 	ai "github.com/Kludex/pydantic-ai-go/ai"
+	monty "github.com/ewhauser/gomonty"
+	"github.com/ewhauser/gomonty/otelmonty"
+	"github.com/mdfranz/sparktea/codemode"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
@@ -34,6 +37,64 @@ const defaultLogfireEndpoint = "logfire-us.pydantic.dev"
 // logfireCapability instruments every agent this session builds. It stays
 // nil, silently, when LOGFIRE_TOKEN isn't set.
 var logfireCapability ai.Capability
+
+// newCodeMode joins Monty execution spans to the active agent trace.
+func newCodeMode() *codemode.CodeMode {
+	if logfireCapability == nil {
+		return codemode.New()
+	}
+	sendContent := os.Getenv("LOGFIRE_SEND_CONTENT") == "1"
+	var handler monty.TelemetryHandler = otelmonty.Handler{}
+	if !sendContent {
+		handler = redactedMontyHandler{Handler: otelmonty.Handler{}}
+	}
+	handler = nanosecondMontyHandler{TelemetryHandler: handler}
+	return codemode.New(codemode.WithTelemetry(handler, monty.TelemetryOptions{
+		RecordArguments: sendContent,
+		RecordOutputs:   sendContent,
+	}))
+}
+
+// gomonty's millisecond attributes round sub-millisecond runs down to zero.
+type nanosecondMontyHandler struct{ monty.TelemetryHandler }
+
+func (h nanosecondMontyHandler) StartExecution(ctx context.Context, info monty.ExecutionInfo) (context.Context, monty.ExecutionSpan) {
+	ctx, span := h.TelemetryHandler.StartExecution(ctx, info)
+	return ctx, nanosecondMontyExecutionSpan{ExecutionSpan: span, otelSpan: trace.SpanFromContext(ctx)}
+}
+
+type nanosecondMontyExecutionSpan struct {
+	monty.ExecutionSpan
+	otelSpan trace.Span
+}
+
+func (s nanosecondMontyExecutionSpan) End(result monty.Value, err error, timing monty.ExecutionTiming, output monty.TruncatedPayload) {
+	s.otelSpan.SetAttributes(
+		attribute.Int64("monty.python_duration_ns", timing.Python().Nanoseconds()),
+		attribute.Int64("monty.callback_duration_ns", timing.Callback.Nanoseconds()),
+		attribute.Int64("monty.wait_duration_ns", timing.Wait.Nanoseconds()),
+	)
+	s.ExecutionSpan.End(result, err, timing, output)
+}
+
+// gomonty calls RecordPrint even when RecordOutputs is false.
+type redactedMontyHandler struct{ otelmonty.Handler }
+
+func (redactedMontyHandler) RecordPrint(context.Context, string) {}
+
+func (h redactedMontyHandler) StartExecution(ctx context.Context, info monty.ExecutionInfo) (context.Context, monty.ExecutionSpan) {
+	ctx, span := h.Handler.StartExecution(ctx, info)
+	return ctx, redactedMontyExecutionSpan{ExecutionSpan: span}
+}
+
+type redactedMontyExecutionSpan struct{ monty.ExecutionSpan }
+
+func (s redactedMontyExecutionSpan) End(result monty.Value, err error, timing monty.ExecutionTiming, output monty.TruncatedPayload) {
+	if err != nil {
+		err = errors.New("Monty execution failed")
+	}
+	s.ExecutionSpan.End(result, err, timing, output)
+}
 
 // initLogfire wires OpenTelemetry traces and metrics to Logfire when
 // LOGFIRE_TOKEN is set. It sets the global tracer/meter providers and

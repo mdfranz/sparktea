@@ -72,6 +72,10 @@ make clean    # removes ./sparktea
   multi-line/pasted prompts (the input box grows with the text, up to 6
   lines). Reasoning models' thinking traces render dimmed above the answer
   when the provider exposes them; finished answers render as markdown.
+- Scroll the right activity panel independently with the mouse wheel over it,
+  `alt+↑`/`alt+↓`, `alt+PgUp`/`alt+PgDn`, or `alt+Home`/`alt+End`.
+- When Code Mode runs, the main conversation shows the assistant-generated
+  Python under an “Assistant code · Monty sandbox” label.
 - `esc`, `ctrl+c`, or `ctrl+d` (on an empty input line) to quit. Mouse-wheel
   scrolling works in the transcript, at the cost of the terminal's own
   click-drag text selection while sparktea is running.
@@ -88,7 +92,7 @@ Type these instead of a message:
 | `/search` (or `/search on`/`off`) | Toggle native web search grounding (`ai.WebSearchTool`) for models that support it. OpenRouter, Gemini, and Anthropic models pick it up (or silently skip it if the underlying model doesn't do web search); Mistral's adapter doesn't implement pydantic-ai-go's native-tool interface at all, so sparktea leaves the tool out of the request entirely rather than send something the transport would reject — `/search on` on a Mistral model just notes that it's a no-op. OpenAI is excluded the same way for a different reason: pydantic-ai-go's Responses stream parser crashes the turn on a real web search call — see `ISSUES.md`. When a turn's answer cites pages, sparktea shows a "🔗 Sources:" list below it — providers surface this differently (Gemini's grounding chunks, Anthropic's search-result blocks, OpenRouter's annotations), so a page a model consulted without citing may not appear. Known upstream bug: turning search on can break the next turn if history has a prior thinking block — see `ISSUES.md`. |
 | `/get <url>` | Fetch a known HTTP(S) URL and load its normalized content into the conversation for follow-up questions. sparktea uses provider-native fetch when available and pydantic-ai-go's bounded, SSRF-protected local fallback otherwise. The model briefly confirms the retrieval; treat fetched pages as untrusted reference material. |
 | `/code` (or `/code on`/`off`) | Toggle Code Mode: gives the model a `run_code` tool that executes Python in a sandbox. Off by default. See "Code Mode" below. |
-| `/activity` (or `/activity on`/`off`) | Toggle the activity panel: a second scrolling column (right of the transcript) for thinking and tool-call notes, so the main transcript stays just the conversation. On by default; auto-hides below 100 terminal columns regardless of the toggle (too narrow for two columns), falling back to the old inline behavior — the status line notes when that's why you don't see it. |
+| `/activity` (or `/activity on`/`off`) | Toggle the activity panel: a second column (right of the transcript) for thinking and tool-call notes, independently scrollable with the mouse wheel or `alt`+navigation keys. On by default; auto-hides below 100 terminal columns regardless of the toggle (too narrow for two columns), falling back to the old inline behavior — the status line notes when that's why you don't see it. |
 | `/save [name]` | Save the conversation, transcript, activity, model, usage totals, and mode toggles to `~/.sparktea/sessions/<name>.json` (default name `default`). |
 | `/load [name]` | Restore a saved conversation and its model, usage totals, mode toggles, transcript, and activity. Older history-only session files remain loadable. |
 
@@ -175,12 +179,14 @@ your user account (`0600` and `0700`, respectively) and are retained until
 you remove them.
 
 The logs record lifecycle events, selected provider/model, enabled modes,
-usage, tool names/outcomes, and error types. They never include prompts,
-responses, thinking, tool inputs/results, session identifiers, or credentials.
-For example, filter today's events with:
+usage, tool names/outcomes, and error types. When `run_code` is called, its
+assistant-supplied Python source is recorded as the `source` field of a
+`monty_code_submitted` event, so the code sent to Monty can be reviewed locally.
+Prompts, responses, thinking, tool results, session identifiers, and
+credentials are not logged. For example, inspect today's generated code with:
 
 ```console
-jq -r '.msg' ~/.sparktea/logs/sparktea-$(date +%F).jsonl
+jq -r 'select(.msg == "monty_code_submitted") | .source' ~/.sparktea/logs/sparktea-$(date +%F).jsonl
 ```
 
 ## Observability (Logfire)
@@ -191,6 +197,11 @@ product — the run's agent spans, model requests, token usage, and cost, one
 trace per turn. Native (provider-executed) tool calls — web search, code
 execution — get their own child span too, since the underlying library only
 ever folds those into the chat span's message history otherwise.
+When Code Mode runs, gomonty adds a `monty.run` span under the same turn,
+including execution timing and errors. Sparktea also records nanosecond
+timings (`monty.python_duration_ns`, `monty.callback_duration_ns`, and
+`monty.wait_duration_ns`) so short scripts do not show only zero milliseconds.
+Python output is included only with `LOGFIRE_SEND_CONTENT=1`.
 
 ```console
 export LOGFIRE_TOKEN="your-write-token"
@@ -229,7 +240,9 @@ Python, sparktea runs it, the model gets the result back. This is
 [**Monty**](https://github.com/pydantic/monty), a sandboxed Python
 interpreter written in Rust, via its Go bindings,
 [**gomonty**](https://github.com/ewhauser/gomonty) — no Docker, no
-subprocess, a few milliseconds to start.
+subprocess, a few milliseconds to start. When Code Mode runs, the main
+conversation shows the assistant-generated Python under an “Assistant code ·
+Monty sandbox” label.
 
 Sandboxing guarantees:
 - No filesystem, network, or environment access. `os` and `pathlib` import
@@ -269,9 +282,10 @@ composing; it needs no rework of the current implementation.
 
 sparktea depends on a personal fork of gomonty
 (`github.com/mdfranz/gomonty`), pinned via a `go.mod` `replace` directive,
-to carry Monty-version-refresh work ahead of upstream releasing it — see
-`MONTY-PLAN.md` for the details and the risk that comes with it (native
-libraries are currently only rebuilt/verified for macOS arm64).
+currently at `main` commit `83220b6` (September 24, 2026), to carry
+Monty-version-refresh work ahead of upstream releasing it — see
+`MONTY-PLAN.md` for the details and the risks of relying on forked native
+libraries.
 
 ## Adding models
 

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
@@ -14,8 +15,9 @@ import (
 )
 
 // localLogger writes operational diagnostics to one private JSON Lines file
-// per local calendar day. It deliberately receives only metadata: callers
-// must never pass prompts, responses, tool payloads, or credentials.
+// per local calendar day. It deliberately receives only metadata, except that
+// CodeMode source is recorded in monty_code_submitted events.
+// Callers must never pass prompts, responses, tool results, or credentials.
 type localLogger struct {
 	mu   sync.Mutex
 	dir  string
@@ -125,6 +127,19 @@ func logLocal(level slog.Level, name string, args ...any) {
 func logLocalError(name string, err error, args ...any) {
 	args = append(args, "error_type", errorType(err))
 	logLocal(slog.LevelError, name, args...)
+}
+
+// recordMontyCode logs and returns the Python source submitted to Monty.
+// Tool arguments are otherwise kept out of operational logs.
+func recordMontyCode(rawArgs json.RawMessage) (string, bool) {
+	var args struct {
+		Code string `json:"code"`
+	}
+	if err := json.Unmarshal(rawArgs, &args); err != nil || args.Code == "" {
+		return "", false
+	}
+	logLocal(slog.LevelInfo, "monty_code_submitted", "tool", "run_code", "source", args.Code)
+	return args.Code, true
 }
 
 func errorType(err error) string {

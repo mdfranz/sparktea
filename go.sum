@@ -102,6 +102,10 @@ github.com/mattn/go-localereader v0.0.1/go.mod h1:8fBrzywKY7BI3czFoHkuzRoWE9C+Ei
 github.com/mattn/go-runewidth v0.0.12/go.mod h1:RAqKPSqVFrSLVXbA8x7dzmKdmGzieGRCM46jaSJTDAk=
 github.com/mattn/go-runewidth v0.0.19 h1:v++JhqYnZuu5jSKrk9RbgF5v4CGUjqRfBm05byFGLdw=
 github.com/mattn/go-runewidth v0.0.19/go.mod h1:XBkDxAl56ILZc9knddidhrOlY5R/pDhgLpndooCuJAs=
+github.com/mdfranz/gomonty v0.0.16-0.20260925005554-83220b6de2d3 h1:1Jnpf/D1lkWTpXCCx1tHEC8XyWCGLeE04fFIVftZNS8=
+github.com/mdfranz/gomonty v0.0.16-0.20260925005554-83220b6de2d3/go.mod h1:XCLUVfUFX733MIidhDw3iLWwaVNxT23i9xK+ioAAOVc=
+github.com/mdfranz/gomonty/otelmonty v0.0.0-20260925005554-83220b6de2d3 h1:JJxTo+XqOlWp19wY1fOIbjSDbRr4a6YooFLENEhg/hE=
+github.com/mdfranz/gomonty/otelmonty v0.0.0-20260925005554-83220b6de2d3/go.mod h1:tKBE6R/c1a3HCWQd9SIVpSXciYIeVFqIwtpRFe0S3pw=
 github.com/mdfranz/pydantic-ai-go v0.0.0-20260906201830-b92c569373db h1:vjdiFWW5ZaPX/D2d968cfZRQD59yARMiXEIkVNZ5Mw4=
 github.com/mdfranz/pydantic-ai-go v0.0.0-20260906201830-b92c569373db/go.mod h1:YNf3EdEu3FVSDCJCpIehBndVTOdKuulzLRSFtzB8vp8=
 github.com/microcosm-cc/bluemonday v1.0.27 h1:MpEUotklkwCSLeH+Qdx1VJgNqLlpY2KXwXFM08ygZfk=
