@@ -10,8 +10,29 @@ import (
 	"time"
 
 	"github.com/Kludex/pydantic-ai-go/ai"
-	monty "github.com/ewhauser/gomonty"
+	monty "github.com/mdfranz/gomonty"
+	"github.com/mdfranz/gomonty/otelmonty"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 )
+
+func recordedSpan(spans []sdktrace.ReadOnlySpan, name string) sdktrace.ReadOnlySpan {
+	for _, span := range spans {
+		if span.Name() == name {
+			return span
+		}
+	}
+	return nil
+}
+
+func spanHasAttribute(span sdktrace.ReadOnlySpan, key string) bool {
+	for _, attr := range span.Attributes() {
+		if string(attr.Key) == key {
+			return true
+		}
+	}
+	return false
+}
 
 // runRaw runs code through a fresh CodeMode with the given limits
 // (defaultLimits() if nil) and returns handleRunCode's raw (result, error) —
@@ -38,6 +59,77 @@ func run(t *testing.T, code string, limits *monty.ResourceLimits) any {
 		t.Fatalf("handleRunCode returned an error for a script expected to succeed: %v", err)
 	}
 	return result
+}
+
+func TestRunCodeMontyTelemetryJoinsParentTrace(t *testing.T) {
+	recorder := tracetest.NewSpanRecorder()
+	tp := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(recorder))
+	tracer := tp.Tracer("sparktea-test")
+
+	c := New()
+	c.telemetry = montyTelemetry{
+		Handler:       otelmonty.Handler{Tracer: tracer},
+		recordContent: true,
+	}
+	ctx, parent := tracer.Start(context.Background(), "run_code tool")
+	args, err := json.Marshal(map[string]string{"code": "print('hello')\n40 + 2"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.handleRunCode(ctx, args); err != nil {
+		t.Fatalf("handleRunCode: %v", err)
+	}
+	parent.End()
+
+	spans := recorder.Ended()
+	montyRun := recordedSpan(spans, "monty.run")
+	tool := recordedSpan(spans, "run_code tool")
+	if montyRun == nil || tool == nil {
+		t.Fatalf("expected tool and monty.run spans, got %d spans", len(spans))
+	}
+	if montyRun.Parent().SpanID() != tool.SpanContext().SpanID() {
+		t.Errorf("monty.run parent = %v, want tool span %v", montyRun.Parent().SpanID(), tool.SpanContext().SpanID())
+	}
+	if !spanHasAttribute(montyRun, "monty.output") {
+		t.Error("monty.run has no monty.output attribute with content enabled")
+	}
+	foundPrint := false
+	for _, event := range montyRun.Events() {
+		foundPrint = foundPrint || event.Name == "monty.print"
+	}
+	if !foundPrint {
+		t.Error("monty.run has no monty.print event with content enabled")
+	}
+}
+
+func TestRunCodeMontyTelemetryContentOptOut(t *testing.T) {
+	recorder := tracetest.NewSpanRecorder()
+	tp := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(recorder))
+	c := New(WithTelemetryContent(false))
+	c.telemetry = montyTelemetry{
+		Handler:       otelmonty.Handler{Tracer: tp.Tracer("sparktea-test")},
+		recordContent: false,
+	}
+	args, err := json.Marshal(map[string]string{"code": "print('secret')\n42"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.handleRunCode(context.Background(), args); err != nil {
+		t.Fatalf("handleRunCode: %v", err)
+	}
+
+	montyRun := recordedSpan(recorder.Ended(), "monty.run")
+	if montyRun == nil {
+		t.Fatal("no monty.run span recorded")
+	}
+	if spanHasAttribute(montyRun, "monty.output") {
+		t.Error("monty.run contains monty.output despite content opt-out")
+	}
+	for _, event := range montyRun.Events() {
+		if event.Name == "monty.print" {
+			t.Error("monty.run contains monty.print despite content opt-out")
+		}
+	}
 }
 
 // runExpectingRetry asserts code fails the way handleRunCode reports a bad
@@ -305,6 +397,7 @@ func TestLatestMontyRejectedLanguageFeatures(t *testing.T) {
 		})
 	}
 }
+
 
 // TestRunCodeOSCallsFailCleanly confirms a real OS-touching call (the
 // sandbox has no filesystem/env, and this package wires no OS handler)

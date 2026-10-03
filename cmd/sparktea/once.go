@@ -114,15 +114,17 @@ func resolveModel(options []modelOption, spec string) (modelOption, error) {
 // runOnce runs a single prompt against option to completion, with no TUI.
 // The model's answer streams to stdout (so output is pipeable/scriptable);
 // thinking, tool calls, tool results, and a final usage line go to stderr —
-// exactly the detail Logfire redacts by default (see LOGFIRE_SEND_CONTENT
-// in logfire.go), useful for exercising Code Mode's run_code tool and
-// seeing the code and result it produced without touching telemetry.
+// exactly the detail Logfire captures by default (see LOGFIRE_SEND_CONTENT
+// in logfire.go), useful for exercising Code Mode's run_code tool and seeing
+// the code and result it produced directly.
 func runOnce(ctx context.Context, option modelOption, opts cliOptions) error {
 	agent := newAgentFor(option)
 
 	var runOpts []ai.RunOption
 	if opts.code {
-		runOpts = append(runOpts, ai.WithRunCapabilities(codemode.New()))
+		runOpts = append(runOpts, ai.WithRunCapabilities(
+			codemode.New(codemode.WithTelemetryContent(logfireSendContent())),
+		))
 	}
 	searchEnabled := opts.search && option.supportsNativeWebSearch()
 	if opts.search && !searchEnabled {

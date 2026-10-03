@@ -9,7 +9,8 @@ require (
 	github.com/charmbracelet/glamour v1.0.0
 	github.com/charmbracelet/lipgloss v1.1.1-0.20250404203927-76690c660834
 	github.com/charmbracelet/x/ansi v0.11.6
-	github.com/ewhauser/gomonty v0.0.14
+	github.com/mdfranz/gomonty v0.0.17-0.20261002155701-5325fd2318ec
+	github.com/mdfranz/gomonty/otelmonty v0.0.0-20261002155701-5325fd2318ec
 	go.opentelemetry.io/otel v1.46.0
 	go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp v1.46.0
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp v1.46.0
@@ -83,5 +84,3 @@ require (
 	google.golang.org/grpc v1.83.1 // indirect
 	google.golang.org/protobuf v1.36.12 // indirect
 )
-
-replace github.com/ewhauser/gomonty => github.com/mdfranz/gomonty v0.0.0-20260905152908-2a387f1a0338

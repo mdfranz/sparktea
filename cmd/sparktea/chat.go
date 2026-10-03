@@ -276,7 +276,7 @@ func newChatModel(option modelOption, width, height int) (*chatModel, tea.Cmd) {
 		activityViewport:   viewport.New(activityMinPanelWidth, max(height-5, 1)),
 		activityEnabled:    true,
 		spinner:            sp,
-		codeModeCapability: codemode.New(),
+		codeModeCapability: codemode.New(codemode.WithTelemetryContent(logfireSendContent())),
 	}
 	cm.setSize(width, height)
 	return cm, textarea.Blink
@@ -511,7 +511,7 @@ func (m *chatModel) View() string {
 	if !m.ready {
 		return "initializing…"
 	}
-	title := fmt.Sprintf("sparktea · %s", m.option.label)
+	title := fmt.Sprintf("sparktea · %s · %s", m.option.label, codemode.VersionSummary())
 	if logfireCapability != nil {
 		title += " · 🔭 logfire"
 	}

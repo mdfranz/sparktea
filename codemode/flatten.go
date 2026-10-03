@@ -3,7 +3,7 @@ package codemode
 import (
 	"fmt"
 
-	monty "github.com/ewhauser/gomonty"
+	monty "github.com/mdfranz/gomonty"
 )
 
 // flattenValue unwraps a monty.Value into plain Go/JSON types. Value's own

@@ -95,7 +95,7 @@ func runScript(ctx context.Context, options []modelOption, opts cliOptions) erro
 		return err
 	}
 	agent := newAgentFor(option)
-	codeModeCapability := codemode.New()
+	codeModeCapability := codemode.New(codemode.WithTelemetryContent(logfireSendContent()))
 
 	var history []ai.ModelMessage
 	var searchEnabled, codeEnabled bool

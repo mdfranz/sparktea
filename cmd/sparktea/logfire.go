@@ -107,10 +107,10 @@ func initLogfire(ctx context.Context) (shutdown func(context.Context) error, err
 	otel.SetTracerProvider(tracerProvider)
 	otel.SetMeterProvider(meterProvider)
 
-	// Redact prompts, completions, and request parameters by default: this
-	// telemetry leaves the local machine. Opt in once the Logfire project is
-	// one you trust with conversation content.
-	sendContent := os.Getenv("LOGFIRE_SEND_CONTENT") == "1"
+	// Include prompts, completions, tool inputs/results, and request
+	// parameters by default. Set LOGFIRE_SEND_CONTENT=0 when the destination
+	// should receive only trace structure, usage, and cost metadata.
+	sendContent := logfireSendContent()
 	logfireCapability = ai.NewInstrumentation(
 		ai.WithInstrumentationContent(sendContent),
 		ai.WithInstrumentationBinaryContent(sendContent),
@@ -134,11 +134,16 @@ func initLogfire(ctx context.Context) (shutdown func(context.Context) error, err
 	}, nil
 }
 
+func logfireSendContent() bool {
+	value, set := os.LookupEnv("LOGFIRE_SEND_CONTENT")
+	return !set || value != "0"
+}
+
 // runTracer wraps one agent run in a span and turns each native
 // (provider-executed) tool call into its own child span. Without this, tools
 // like web_search or code_execution never appear structurally in Logfire:
 // the pydantic-ai-go library only folds them into the chat span's
-// message-history attribute, which is redacted unless LOGFIRE_SEND_CONTENT=1
+// message-history attribute, which is redacted when LOGFIRE_SEND_CONTENT=0
 // — so a run that made a dozen native tool calls shows up as a single
 // opaque "chat" span.
 //
