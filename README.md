@@ -117,7 +117,8 @@ sparktea -model anthropic:claude-haiku-4-5-20251001 -code \
 - The model's answer streams to stdout; thinking, tool calls (including the
   exact `run_code` argument and result), and a final usage line go to
   stderr — redirect it away (`2>/dev/null`) for just the answer, or capture
-  it separately to see what a script actually ran.
+  it separately to see what a script actually ran. In the usage line,
+  `tool_calls` counts successful tool calls and `tool_errors` failed ones.
 
 `./test_sparktea.sh` exercises this CLI end to end: flag parsing and error
 paths always run; a live prompt and a live Code Mode `run_code` call run too
@@ -130,6 +131,17 @@ a modelID a provider itself rejects (a stale OpenRouter slug, a model a
 provider deprecated), as opposed to a bug in sparktea's own request
 building. Off by default since it's one call per catalog entry rather than
 one per provider, so it's the slowest and priciest check here.
+
+`./monty_codegen.sh` measures how well a model's generated Python runs on
+Monty. It sends 23 small tasks with known answers through `-code -prompt`.
+Most tasks are worded to tempt the model toward something Monty doesn't
+support (inheritance, generators, `match`, `enum`, `hashlib`, deep
+recursion; see Monty's
+[limitations docs](https://github.com/pydantic/monty/tree/main/docs/limitations)).
+For each case it reports pass/fail, `run_code` calls, failed calls by error
+type, and the answer. Flags: `-m provider:model_id`, `-j` parallel cases
+(default 4), `-o` log directory, `-l` to list cases; positional arguments
+filter cases by name substring.
 
 ### Scripting multi-turn sequences
 

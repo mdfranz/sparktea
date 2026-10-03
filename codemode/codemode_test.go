@@ -259,7 +259,7 @@ func TestRunCodeExceedsMaxMemory(t *testing.T) {
 // TestRunCodeUnsupportedStdlibModules tracks the latest Monty stdlib surface.
 // Keep the run_code description in sync when the gomonty pin is refreshed.
 func TestRunCodeUnsupportedStdlibModules(t *testing.T) {
-	for _, mod := range []string{"statistics", "enum"} {
+	for _, mod := range []string{"statistics", "enum", "struct", "hashlib", "contextlib", "operator", "string", "io"} {
 		t.Run(mod, func(t *testing.T) {
 			runExpectingRetry(t, "import "+mod, nil)
 		})
@@ -391,6 +391,7 @@ func TestLatestMontyRejectedLanguageFeatures(t *testing.T) {
 		{"async with", "async def main():\n    async with manager():\n        pass\nmain()"},
 		{"async for", "async def main():\n    async for value in source():\n        pass\nmain()"},
 		{"template string", `t"value: {42}"`},
+		{"method decorator", "class T:\n    @property\n    def f(self):\n        return 1\nT().f"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			runExpectingRetry(t, tc.code, nil)
@@ -398,6 +399,27 @@ func TestLatestMontyRejectedLanguageFeatures(t *testing.T) {
 	}
 }
 
+// TestRunCodeDescribedMissingNames covers the names the run_code description
+// says are missing from the latest Monty release. Keep the two in sync.
+func TestRunCodeDescribedMissingNames(t *testing.T) {
+	for _, tc := range []struct{ name, code string }{
+		{"functools.lru_cache", "import functools\nfunctools.lru_cache"},
+		{"functools.cache", "import functools\nfunctools.cache"},
+		{"dataclasses.field", "from dataclasses import field"},
+		{"dataclasses.asdict", "from dataclasses import asdict"},
+		{"re.VERBOSE", "import re\nre.VERBOSE"},
+		{"sys.setrecursionlimit", "import sys\nsys.setrecursionlimit(500)"},
+		{"latin-1 codec", "'é'.encode('latin-1')"},
+		{"super", "class T:\n    def __init__(self):\n        super().__init__()\nT()"},
+		{"bytearray", "bytearray(2)"},
+		{"function __name__", "def f():\n    pass\nf.__name__"},
+		{"recursion depth", "def f(n):\n    return 0 if n == 0 else 1 + f(n - 1)\nf(150)"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			runExpectingRetry(t, tc.code, defaultLimits())
+		})
+	}
+}
 
 // TestRunCodeOSCallsFailCleanly confirms a real OS-touching call (the
 // sandbox has no filesystem/env, and this package wires no OS handler)

@@ -122,12 +122,19 @@ func runCodeDefinition() ai.ToolDefinition {
 			"surface: sys, typing, math, json, re, unicodedata, datetime, pathlib, os, " +
 			"collections, itertools, functools, dataclasses, asyncio, base64, binascii, " +
 			"copy, random, and time. No third-party imports. Notably NOT available: " +
-			"statistics, enum, and anything " +
-			"network/process/thread-related (urllib, socket, subprocess, threading) — " +
-			"compute statistics and pick values with plain arithmetic/math instead of " +
-			"importing statistics.\n\n" +
-			"Also unsupported: class inheritance, generator functions/yield, match, " +
-			"del, async with/for, and PEP 695 type aliases.\n\n" +
+			"statistics, enum, struct, hashlib, contextlib, operator, string, io, and " +
+			"anything network/process/thread-related (urllib, socket, subprocess, " +
+			"threading) — compute statistics and pick values with plain arithmetic/math " +
+			"instead of importing statistics. Missing names in present modules: " +
+			"functools.lru_cache/cache (memoize with a dict), dataclasses.field/asdict, " +
+			"re.VERBOSE, sys.setrecursionlimit. Only UTF-8, UTF-16, UTF-32 and ASCII " +
+			"codecs exist (no latin-1).\n\n" +
+			"Also unsupported: class inheritance (so no custom exception classes — raise " +
+			"a built-in like ValueError), method decorators (@property, @staticmethod, " +
+			"@classmethod), super(), bytearray, function attributes like __name__, " +
+			"generator functions/yield, match, del, async with/for, and PEP 695 type " +
+			"aliases. Recursion depth is capped at 100 — use loops for anything " +
+			"deeper.\n\n" +
 			"A bad script's error comes back as a message, not a hard failure — read it, " +
 			"fix the code, and call run_code again. Good for calculations, loops, or data " +
 			"wrangling that's easier to write than to reason through step by step.",

@@ -1177,6 +1177,7 @@ func (m *chatModel) startStreamWithWebFetch(prompt string, webFetch bool) tea.Cm
 		logLocal(slog.LevelInfo, "turn_started", "mode", "interactive", "provider", string(option.provider), "model", option.modelID, "web_search", searchEnabled, "web_fetch", webFetch, "code_mode", codeEnabled)
 		runTracer, runCtx := startRunTracer(ctx, "sparktea turn")
 
+		toolErrors := 0
 		run := agent.RunStream(runCtx, prompt, struct{}{}, runOpts...)
 		for event, err := range run.Events() {
 			if err != nil {
@@ -1224,6 +1225,7 @@ func (m *chatModel) startStreamWithWebFetch(prompt string, webFetch bool) tea.Cm
 				case ai.ToolReturnPart:
 					logLocal(slog.LevelInfo, "tool_finished", "tool", part.ToolName, "outcome", "success")
 				case ai.RetryPromptPart:
+					toolErrors++
 					logLocal(slog.LevelWarn, "tool_finished", "tool", part.ToolName, "outcome", "error")
 				}
 			}
@@ -1244,7 +1246,7 @@ func (m *chatModel) startStreamWithWebFetch(prompt string, webFetch bool) tea.Cm
 			return
 		}
 		args := []any{"mode", "interactive", "provider", string(option.provider), "model", option.modelID}
-		args = append(args, usageLogArgs(usage)...)
+		args = append(args, usageLogArgs(usage, toolErrors)...)
 		logLocal(slog.LevelInfo, "turn_completed", args...)
 		runTracer.end(nil)
 		ch <- streamDoneMsg{messages: messages, usage: usage, sources: sources}

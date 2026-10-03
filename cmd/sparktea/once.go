@@ -156,6 +156,7 @@ func runTurn(
 	logLocal(slog.LevelInfo, "turn_started", startArgs...)
 	runTracer, runCtx := startRunTracer(ctx, "sparktea turn")
 
+	toolErrors := 0
 	run := agent.RunStream(runCtx, prompt, struct{}{}, runOpts...)
 	for event, err := range run.Events() {
 		if err != nil {
@@ -195,6 +196,7 @@ func runTurn(
 				content, _ := json.Marshal(part.Content)
 				fmt.Fprintf(os.Stderr, "[tool result] %s %s\n", part.ToolName, content)
 			case ai.RetryPromptPart:
+				toolErrors++
 				logLocal(slog.LevelWarn, "tool_finished", "tool", part.ToolName, "outcome", "error")
 				fmt.Fprintf(os.Stderr, "[tool error] %s %s\n", part.ToolName, part.Content)
 			}
@@ -208,14 +210,14 @@ func runTurn(
 		messages = result.Messages()
 		u := result.Usage()
 		completedArgs := []any{"mode", mode, "provider", string(option.provider), "model", option.modelID}
-		completedArgs = append(completedArgs, usageLogArgs(u)...)
+		completedArgs = append(completedArgs, usageLogArgs(u, toolErrors)...)
 		logLocal(slog.LevelInfo, "turn_completed", completedArgs...)
 		cost := "unknown"
 		if u.CostUSD != nil {
 			cost = fmt.Sprintf("$%.4f", *u.CostUSD)
 		}
-		fmt.Fprintf(os.Stderr, "usage: requests=%d input_tokens=%d output_tokens=%d tool_calls=%d cost=%s\n",
-			u.Requests, u.InputTokens, u.OutputTokens, u.ToolCalls, cost)
+		fmt.Fprintf(os.Stderr, "usage: requests=%d input_tokens=%d output_tokens=%d tool_calls=%d tool_errors=%d cost=%s\n",
+			u.Requests, u.InputTokens, u.OutputTokens, u.ToolCalls, toolErrors, cost)
 	}
 	return messages, nil
 }
