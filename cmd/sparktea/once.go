@@ -114,15 +114,17 @@ func resolveModel(options []modelOption, spec string) (modelOption, error) {
 // runOnce runs a single prompt against option to completion, with no TUI.
 // The model's answer streams to stdout (so output is pipeable/scriptable);
 // thinking, tool calls, tool results, and a final usage line go to stderr —
-// exactly the detail Logfire redacts by default (see LOGFIRE_SEND_CONTENT
-// in logfire.go), useful for exercising Code Mode's run_code tool and
-// seeing the code and result it produced without touching telemetry.
+// exactly the detail Logfire captures by default (see LOGFIRE_SEND_CONTENT
+// in logfire.go), useful for exercising Code Mode's run_code tool and seeing
+// the code and result it produced directly.
 func runOnce(ctx context.Context, option modelOption, opts cliOptions) error {
 	agent := newAgentFor(option)
 
 	var runOpts []ai.RunOption
 	if opts.code {
-		runOpts = append(runOpts, ai.WithRunCapabilities(codemode.New()))
+		runOpts = append(runOpts, ai.WithRunCapabilities(
+			codemode.New(codemode.WithTelemetryContent(logfireSendContent())),
+		))
 	}
 	searchEnabled := opts.search && option.supportsNativeWebSearch()
 	if opts.search && !searchEnabled {
@@ -154,6 +156,7 @@ func runTurn(
 	logLocal(slog.LevelInfo, "turn_started", startArgs...)
 	runTracer, runCtx := startRunTracer(ctx, "sparktea turn")
 
+	toolErrors := 0
 	run := agent.RunStream(runCtx, prompt, struct{}{}, runOpts...)
 	for event, err := range run.Events() {
 		if err != nil {
@@ -193,6 +196,7 @@ func runTurn(
 				content, _ := json.Marshal(part.Content)
 				fmt.Fprintf(os.Stderr, "[tool result] %s %s\n", part.ToolName, content)
 			case ai.RetryPromptPart:
+				toolErrors++
 				logLocal(slog.LevelWarn, "tool_finished", "tool", part.ToolName, "outcome", "error")
 				fmt.Fprintf(os.Stderr, "[tool error] %s %s\n", part.ToolName, part.Content)
 			}
@@ -206,14 +210,14 @@ func runTurn(
 		messages = result.Messages()
 		u := result.Usage()
 		completedArgs := []any{"mode", mode, "provider", string(option.provider), "model", option.modelID}
-		completedArgs = append(completedArgs, usageLogArgs(u)...)
+		completedArgs = append(completedArgs, usageLogArgs(u, toolErrors)...)
 		logLocal(slog.LevelInfo, "turn_completed", completedArgs...)
 		cost := "unknown"
 		if u.CostUSD != nil {
 			cost = fmt.Sprintf("$%.4f", *u.CostUSD)
 		}
-		fmt.Fprintf(os.Stderr, "usage: requests=%d input_tokens=%d output_tokens=%d tool_calls=%d cost=%s\n",
-			u.Requests, u.InputTokens, u.OutputTokens, u.ToolCalls, cost)
+		fmt.Fprintf(os.Stderr, "usage: requests=%d input_tokens=%d output_tokens=%d tool_calls=%d tool_errors=%d cost=%s\n",
+			u.Requests, u.InputTokens, u.OutputTokens, u.ToolCalls, toolErrors, cost)
 	}
 	return messages, nil
 }

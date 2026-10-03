@@ -117,7 +117,8 @@ sparktea -model anthropic:claude-haiku-4-5-20251001 -code \
 - The model's answer streams to stdout; thinking, tool calls (including the
   exact `run_code` argument and result), and a final usage line go to
   stderr — redirect it away (`2>/dev/null`) for just the answer, or capture
-  it separately to see what a script actually ran.
+  it separately to see what a script actually ran. In the usage line,
+  `tool_calls` counts successful tool calls and `tool_errors` failed ones.
 
 `./test_sparktea.sh` exercises this CLI end to end: flag parsing and error
 paths always run; a live prompt and a live Code Mode `run_code` call run too
@@ -130,6 +131,17 @@ a modelID a provider itself rejects (a stale OpenRouter slug, a model a
 provider deprecated), as opposed to a bug in sparktea's own request
 building. Off by default since it's one call per catalog entry rather than
 one per provider, so it's the slowest and priciest check here.
+
+`./monty_codegen.sh` measures how well a model's generated Python runs on
+Monty. It sends 23 small tasks with known answers through `-code -prompt`.
+Most tasks are worded to tempt the model toward something Monty doesn't
+support (inheritance, generators, `match`, `enum`, `hashlib`, deep
+recursion; see Monty's
+[limitations docs](https://github.com/pydantic/monty/tree/main/docs/limitations)).
+For each case it reports pass/fail, `run_code` calls, failed calls by error
+type, and the answer. Flags: `-m provider:model_id`, `-j` parallel cases
+(default 4), `-o` log directory, `-l` to list cases; positional arguments
+filter cases by name substring.
 
 ### Scripting multi-turn sequences
 
@@ -202,22 +214,25 @@ region (`logfire-us.pydantic.dev`); set `LOGFIRE_ENDPOINT` for the EU region
 or a self-hosted collector. `OTEL_SERVICE_NAME` overrides the reported
 service name (default `sparktea`).
 
-Prompts, completions, and full request parameters are **not** sent by
-default, since this telemetry leaves your machine — only trace structure,
-token counts, and cost.
+Prompts, completions, tool inputs/results, and full request parameters are
+sent to Logfire by default so traces contain the context needed for debugging.
+Code Mode also attaches gomonty's `monty.run` execution span beneath the
+agent's `run_code` tool span, including interpreter timing and, by default,
+the bounded result and captured `print()` output.
 
-**To send full content** (prompts, completions, tool inputs/results) to
-Logfire, set `LOGFIRE_SEND_CONTENT=1` alongside `LOGFIRE_TOKEN`:
+To keep conversation content local and send only trace structure, token counts,
+and cost, set `LOGFIRE_SEND_CONTENT=0` alongside `LOGFIRE_TOKEN`:
 
 ```console
 export LOGFIRE_TOKEN="your-write-token"
-export LOGFIRE_SEND_CONTENT=1
+export LOGFIRE_SEND_CONTENT=0
 go run ./cmd/sparktea
 ```
 
-Only do this once you trust the destination Logfire project with
-conversation content — it's an additive opt-in, not a mode you can enable
-per-turn from inside the TUI.
+Content capture is configured at startup, not per turn. Only use the default
+after confirming that the destination Logfire project is appropriate for the
+conversation content. The opt-out also removes Monty results and `print()`
+events while retaining its execution span and timing attributes.
 
 Without `LOGFIRE_TOKEN` set, none of this runs — no OTel providers are
 installed and agents behave exactly as before.
@@ -228,8 +243,12 @@ installed and agents behave exactly as before.
 Python, sparktea runs it, the model gets the result back. This is
 [**Monty**](https://github.com/pydantic/monty), a sandboxed Python
 interpreter written in Rust, via its Go bindings,
-[**gomonty**](https://github.com/ewhauser/gomonty) — no Docker, no
+[**gomonty**](https://github.com/mdfranz/gomonty) — no Docker, no
 subprocess, a few milliseconds to start.
+
+The top line shows the linked gomonty version and its embedded Monty release,
+alongside the selected model. Development pseudo-versions use a short commit
+hash so the header stays compact.
 
 Sandboxing guarantees:
 - No filesystem, network, or environment access. `os` and `pathlib` import
@@ -238,22 +257,18 @@ Sandboxing guarantees:
 - Only part of the stdlib exists, each module covering a slice of CPython's
   surface: `sys`, `typing`, `math`, `json`, `re`, `unicodedata`, `datetime`,
   `pathlib`, `os`, `collections`, `itertools`, `functools`, `dataclasses`,
-  `asyncio`, `base64`, `binascii`. No third-party imports. Notably **not**
-  available: `statistics`, `random`, `time`, `enum`, `copy`, `string`, `io`,
-  `struct`, `hashlib`, `uuid`, and anything network/process/thread-related
-  (`urllib`, `socket`, `subprocess`, `threading`).
-- Also unsupported: class inheritance, `@classmethod`/`@staticmethod`/
-  `@property`, user-defined exception classes, `eval`/`exec`, `yield`.
-  `%`-style string formatting (`"%.2f" % x`) fails — f-strings and
-  `.format()` both work.
+  `asyncio`, `base64`, `binascii`, `copy`, `random`, and `time`. No
+  third-party imports. Notably **not** available: `statistics`, `enum`, and
+  anything network/process/thread-related (`urllib`, `socket`, `subprocess`,
+  `threading`).
+- Also unsupported: class inheritance, generator functions/`yield`, `match`,
+  `del`, `async with`/`async for`, and PEP 695 type aliases.
 - Each run is capped at 5 seconds wall-clock, 64 MiB memory, and 100 stack
   frames of recursion, so a runaway script can't stall the TUI.
 
-`codemode/codemode_test.go` covers both the current binding and an acceptance
-matrix for the latest upstream Monty language features documented in
-[Monty's limitations guide](https://pydantic.dev/docs/monty/limitations/).
-The newer feature cases require gomonty to be refreshed to that Monty version;
-older native runtimes may still run simple scripts while failing those cases.
+`codemode/codemode_test.go` covers the binding and a Monty v1.0.1 acceptance
+matrix for useful language and standard-library features. The matrix guards
+the embedded runtime against drifting behind the Go API during later upgrades.
 
 The last expression's value comes back automatically (no `print()` needed);
 `print()` output is captured too. A syntax error, a runtime exception, or a
@@ -267,11 +282,10 @@ call sparktea's own tools (e.g. web search) as functions from inside a
 script. That's a natural next step once sparktea has more tools worth
 composing; it needs no rework of the current implementation.
 
-sparktea depends on a personal fork of gomonty
-(`github.com/mdfranz/gomonty`), pinned via a `go.mod` `replace` directive,
-to carry Monty-version-refresh work ahead of upstream releasing it — see
-`MONTY-PLAN.md` for the details and the risk that comes with it (native
-libraries are currently only rebuilt/verified for macOS arm64).
+sparktea depends directly on `github.com/mdfranz/gomonty`. The module bundles
+the native libraries for its supported platforms, so update the displayed
+Monty release in `codemode/version.go` whenever the gomonty pin moves to a
+different upstream Monty version.
 
 ## Adding models
 

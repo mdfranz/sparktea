@@ -12,7 +12,8 @@ import (
 	"time"
 
 	"github.com/Kludex/pydantic-ai-go/ai"
-	monty "github.com/ewhauser/gomonty"
+	monty "github.com/mdfranz/gomonty"
+	"github.com/mdfranz/gomonty/otelmonty"
 )
 
 // ToolName is run_code's model-facing tool name, exported so callers (e.g.
@@ -47,7 +48,9 @@ func defaultLimits() *monty.ResourceLimits {
 // CodeMode is an ai.Capability adding a run_code tool that executes Python
 // in a Monty sandbox.
 type CodeMode struct {
-	limits *monty.ResourceLimits
+	limits           *monty.ResourceLimits
+	telemetry        monty.TelemetryHandler
+	telemetryOptions monty.TelemetryOptions
 }
 
 // Option configures a CodeMode built by New.
@@ -58,9 +61,41 @@ func WithLimits(l monty.ResourceLimits) Option {
 	return func(c *CodeMode) { c.limits = &l }
 }
 
+// WithTelemetryContent controls whether Monty span attributes and events may
+// contain script results and print output. Execution timing and structure are
+// recorded either way.
+func WithTelemetryContent(enabled bool) Option {
+	return func(c *CodeMode) {
+		c.telemetry = montyTelemetry{recordContent: enabled}
+		c.telemetryOptions.RecordArguments = enabled
+		c.telemetryOptions.RecordOutputs = enabled
+	}
+}
+
+// montyTelemetry wraps gomonty's OTel bridge so sparktea's content opt-out
+// also suppresses print() events, which the upstream handler records
+// independently of TelemetryOptions.RecordArguments/RecordOutputs.
+type montyTelemetry struct {
+	otelmonty.Handler
+	recordContent bool
+}
+
+func (h montyTelemetry) RecordPrint(ctx context.Context, text string) {
+	if h.recordContent {
+		h.Handler.RecordPrint(ctx, text)
+	}
+}
+
 // New builds a CodeMode capability with default (or overridden) limits.
 func New(opts ...Option) *CodeMode {
-	c := &CodeMode{limits: defaultLimits()}
+	c := &CodeMode{
+		limits:    defaultLimits(),
+		telemetry: montyTelemetry{recordContent: true},
+		telemetryOptions: monty.TelemetryOptions{
+			RecordArguments: true,
+			RecordOutputs:   true,
+		},
+	}
 	for _, opt := range opts {
 		opt(c)
 	}
@@ -85,15 +120,21 @@ func runCodeDefinition() ai.ToolDefinition {
 			"NotImplementedError — there's nothing to touch.\n\n" +
 			"Only part of the stdlib exists, each module covering a slice of CPython's " +
 			"surface: sys, typing, math, json, re, unicodedata, datetime, pathlib, os, " +
-			"collections, itertools, functools, dataclasses, asyncio, base64, binascii. " +
-			"No third-party imports. Notably NOT available: statistics, random, time, " +
-			"enum, copy, string, io, struct, hashlib, uuid, and anything " +
-			"network/process/thread-related (urllib, socket, subprocess, threading) — " +
-			"compute statistics and pick values with plain arithmetic/math instead of " +
-			"importing statistics/random.\n\n" +
-			"Also unsupported: class inheritance, @classmethod/@staticmethod/@property, " +
-			"user-defined exception classes, eval/exec, yield. '%'-style string " +
-			"formatting fails — use an f-string or .format() instead.\n\n" +
+			"collections, itertools, functools, dataclasses, asyncio, base64, binascii, " +
+			"copy, random, and time. No third-party imports. Notably NOT available: " +
+			"statistics, enum, struct, hashlib, contextlib, operator, string, io, and " +
+			"anything network/process/thread-related (urllib, socket, subprocess, " +
+			"threading) — compute statistics and pick values with plain arithmetic/math " +
+			"instead of importing statistics. Missing names in present modules: " +
+			"functools.lru_cache/cache (memoize with a dict), dataclasses.field/asdict, " +
+			"re.VERBOSE, sys.setrecursionlimit. Only UTF-8, UTF-16, UTF-32 and ASCII " +
+			"codecs exist (no latin-1).\n\n" +
+			"Also unsupported: class inheritance (so no custom exception classes — raise " +
+			"a built-in like ValueError), method decorators (@property, @staticmethod, " +
+			"@classmethod), super(), bytearray, function attributes like __name__, " +
+			"generator functions/yield, match, del, async with/for, and PEP 695 type " +
+			"aliases. Recursion depth is capped at 100 — use loops for anything " +
+			"deeper.\n\n" +
 			"A bad script's error comes back as a message, not a hard failure — read it, " +
 			"fix the code, and call run_code again. Good for calculations, loops, or data " +
 			"wrangling that's easier to write than to reason through step by step.",
@@ -134,8 +175,10 @@ func (c *CodeMode) handleRunCode(ctx context.Context, rawArgs json.RawMessage) (
 
 	var stdout strings.Builder
 	value, err := runner.Run(ctx, monty.RunOptions{
-		Print:  monty.WriterPrintCallback(&stdout),
-		Limits: c.limits,
+		Print:            monty.WriterPrintCallback(&stdout),
+		Limits:           c.limits,
+		Telemetry:        c.telemetry,
+		TelemetryOptions: c.telemetryOptions,
 	})
 	if err != nil {
 		// Runtime error (including a resource-limit violation) or a typing

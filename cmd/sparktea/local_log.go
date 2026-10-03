@@ -134,13 +134,17 @@ func errorType(err error) string {
 	return fmt.Sprintf("%T", err)
 }
 
-func usageLogArgs(u ai.Usage) []any {
+// usageLogArgs renders u for a turn_completed log entry. toolErrors is the
+// number of function tool calls that failed: u.ToolCalls counts only
+// successful ones.
+func usageLogArgs(u ai.Usage, toolErrors int) []any {
 	args := []any{
 		"requests", u.Requests,
 		"input_tokens", u.InputTokens,
 		"output_tokens", u.OutputTokens,
 		"reasoning_tokens", u.ReasoningTokens,
 		"tool_calls", u.ToolCalls,
+		"tool_errors", toolErrors,
 	}
 	if u.CostUSD != nil {
 		args = append(args, "cost_usd", *u.CostUSD)

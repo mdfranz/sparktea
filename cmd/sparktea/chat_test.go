@@ -97,6 +97,18 @@ func TestHeaderShowsUsageAfterCompletedTurn(t *testing.T) {
 	}
 }
 
+func TestHeaderShowsCodeRuntimeVersions(t *testing.T) {
+	option := modelOption{label: "Test Model", provider: providerAnthropic, modelID: "claude-haiku-4-5-20251001"}
+	m, _ := newChatModel(option, 120, 24)
+
+	got := ansi.Strip(m.View())
+	for _, want := range []string{"gomonty ", "monty v1.0.1"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("header does not contain %q:\n%s", want, got)
+		}
+	}
+}
+
 func TestExtractWebSearchResults(t *testing.T) {
 	// Google (Gemini): groundingChunks[].web, keyed "uri"/"title".
 	google := []map[string]any{
