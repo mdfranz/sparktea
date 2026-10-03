@@ -9,8 +9,8 @@ require (
 	github.com/charmbracelet/glamour v1.0.0
 	github.com/charmbracelet/lipgloss v1.1.1-0.20250404203927-76690c660834
 	github.com/charmbracelet/x/ansi v0.11.6
-	github.com/mdfranz/gomonty v0.0.17-0.20261002155701-5325fd2318ec
-	github.com/mdfranz/gomonty/otelmonty v0.0.0-20261002155701-5325fd2318ec
+	github.com/mdfranz/gomonty v0.0.17
+	github.com/mdfranz/gomonty/otelmonty v0.0.0-20261003122000-1305805346d5
 	go.opentelemetry.io/otel v1.46.0
 	go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp v1.46.0
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp v1.46.0

@@ -122,10 +122,10 @@ github.com/mattn/go-localereader v0.0.1/go.mod h1:8fBrzywKY7BI3czFoHkuzRoWE9C+Ei
 github.com/mattn/go-runewidth v0.0.12/go.mod h1:RAqKPSqVFrSLVXbA8x7dzmKdmGzieGRCM46jaSJTDAk=
 github.com/mattn/go-runewidth v0.0.19 h1:v++JhqYnZuu5jSKrk9RbgF5v4CGUjqRfBm05byFGLdw=
 github.com/mattn/go-runewidth v0.0.19/go.mod h1:XBkDxAl56ILZc9knddidhrOlY5R/pDhgLpndooCuJAs=
-github.com/mdfranz/gomonty v0.0.17-0.20261002155701-5325fd2318ec h1:4bKHcnXeE1tEXWk+hd4QvVk4gyApl3PAVUi/TsU+j0U=
-github.com/mdfranz/gomonty v0.0.17-0.20261002155701-5325fd2318ec/go.mod h1:YjehEbokRptoXltoA6WC+YuhK3UROqRr1jwioDjKJFs=
-github.com/mdfranz/gomonty/otelmonty v0.0.0-20261002155701-5325fd2318ec h1:NFFKV5LEisnFqhJtTNYlut0YZkdE4BADtgGlFLPP/oU=
-github.com/mdfranz/gomonty/otelmonty v0.0.0-20261002155701-5325fd2318ec/go.mod h1:iQ0F+5PrRGnfZ9g7/CO640VSfSJNGG1Xkv7noz9nS7c=
+github.com/mdfranz/gomonty v0.0.17 h1:zw79xbxHFg7xNnpRe1ywvDQ3qLwS9UVv/EsYnkG/epc=
+github.com/mdfranz/gomonty v0.0.17/go.mod h1:YjehEbokRptoXltoA6WC+YuhK3UROqRr1jwioDjKJFs=
+github.com/mdfranz/gomonty/otelmonty v0.0.0-20261003122000-1305805346d5 h1:YKRmkr8JLbeKVay109YKwITY080Yw99bmJ0kkcHiTBc=
+github.com/mdfranz/gomonty/otelmonty v0.0.0-20261003122000-1305805346d5/go.mod h1:iQ0F+5PrRGnfZ9g7/CO640VSfSJNGG1Xkv7noz9nS7c=
 github.com/microcosm-cc/bluemonday v1.0.27 h1:MpEUotklkwCSLeH+Qdx1VJgNqLlpY2KXwXFM08ygZfk=
 github.com/microcosm-cc/bluemonday v1.0.27/go.mod h1:jFi9vgW+H7c3V0lb6nR74Ib/DIB5OBs92Dimizgw2cA=
 github.com/muesli/ansi v0.0.0-20230316100256-276c6243b2f6 h1:ZK8zHtRHOkbHy6Mmr5D264iyp3TiX5OmNcI5cIARiQI=
