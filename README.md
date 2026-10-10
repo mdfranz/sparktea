@@ -52,6 +52,9 @@ Keys:
 - `MISTRAL_API_KEY` — required for Mistral models.
 - `OPENAI_API_KEY` — required for direct OpenAI (GPT) models.
 
+sparktea disables pydantic-ai-go's first-run stderr banner so it doesn't
+draw over the TUI or script output.
+
 ## Building
 
 `go run ./cmd/sparktea` is fine for iterating, but a `Makefile` is included for a real

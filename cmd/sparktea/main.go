@@ -11,10 +11,14 @@ import (
 	"log/slog"
 	"os"
 
+	ai "github.com/Kludex/pydantic-ai-go/ai"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
 func main() {
+	// pydantic-ai-go prints a first-run banner to stderr, which would draw
+	// over the TUI and pollute script output.
+	ai.SetBannerEnabled(false)
 	os.Exit(run())
 }
 
