@@ -4,7 +4,8 @@ Tracking known bugs in dependencies that affect sparktea but are fixed
 upstream, not here. Update the status line when an issue closes, and check
 whether sparktea still needs to work around it. All four issues below are
 fixed in pydantic-ai-go v0.4.0 (2026-09-14), which sparktea now uses. The
-last section is a newer, open finding.
+last section is not an upstream bug: it records a sparktea usage problem
+found while investigating what first looked like one.
 
 ## pydantic-ai-go: thinking-block replay
 
@@ -146,98 +147,85 @@ provider adapters' request serialization, not in how sparktea builds or
 replays `m.history`. #4 does: once verified live on v0.4.0, add
 `providerOpenAI` back to `supportsNativeWebSearch()` in `models.go`.
 
-## pydantic-ai-go: streaming run ends after a tool call that follows a text part (OPEN, not yet filed upstream)
+## sparktea: `RunStream` ends the run when text precedes a tool call (OPEN, sparktea-side)
 
-Found 2026-10-10 while comparing models with `monty_codegen.sh` on
-pydantic-ai-go v0.5.0. **Status: documented locally for review; no upstream
-issue filed, no workaround in sparktea yet.** The sections below separate what
-was measured from what is inferred.
+Found 2026-10-10 with `monty_codegen.sh` on pydantic-ai-go v0.5.0. **Status:
+cause confirmed; not a pydantic-ai-go bug. Fix belongs in sparktea and is not
+applied yet.** An earlier version of this section called it an upstream bug;
+that was wrong.
 
 ### Symptom
 
-With `-code -prompt` (and presumably the TUI, which uses the same call), some
-models finish a run right after the first `run_code` call, whether it
-succeeded or failed. No follow-up request is sent with the tool result, no
-error is raised, and the final text is empty or just whitespace.
-`monty_codegen.sh` reports such cases as `WRONG` with 0 failed calls because
-there is no `ANSWER:` line. Cases that look like this (not each one
-checked individually): DeepSeek V4 Flash on `json`, `itertools`, `asyncio`;
-DeepSeek V4 Pro 0813 on `primes`, `naive_fib`, `deep_recursion`; GLM 5.3 Flash
-on `generator`, `enum`, `match`.
+With `-code -prompt` and in the TUI, some models end a run right after the
+first `run_code` call, whether it succeeded or failed. No follow-up request
+carries the tool result back, no error is raised, and the final text is the
+text the model emitted *before* the tool call (often just `"\n\n"`).
+`monty_codegen.sh` reports these as `WRONG` with 0 failed calls.
 
 ### Measured (Logfire project `tomfoolery`, service `sparktea`, 2026-10-10)
 
-For every `chat <model>` span whose finish reason was `tool_call`, check
-whether `gen_ai.output.messages` has a `text` part before the tool call
-(a `reasoning` part does not count), and whether a later `chat` span exists in
-the same trace:
+For every `chat <model>` span whose finish reason was `tool_call`: does
+`gen_ai.output.messages` have a `text` part before the tool call (a
+`reasoning` part does not count), and is there a later `chat` span in the
+same trace?
 
-| Model | tool-call turns with a text part first | run ended after that call | tool-call turns with no text part first | run ended |
+| Model | tool-call turns with text first | run ended after that call | tool-call turns without | run ended |
 |---|---|---|---|---|
 | deepseek-v4-pro-0813 | 26 / 48 | 26 / 26 | 22 | 0 |
 | ~deepseek-v4-flash-latest | 25 / 111 | 25 / 25 | 86 | 0 |
 | z-ai/glm-5.3-flash | 6 / 30 | 6 / 6 | 24 | 0 |
 | qwen/qwen3.8-flash | 1 / 148 | 1 / 1 | 147 | 0 |
 
-Every turn with a leading text part ended the run; no turn without one did.
-In the cases inspected by hand (traces `a9fb204c47180ca64a9e189eab423c60` and
-`fb4a7faff6da5d2ea0aeaab379d672d0`, both Pro) the text part was exactly
-`"\n\n"`, followed by a `run_code` tool call; the tool executed (success in
-one, a retryable `RecursionError` in the other) and the `invoke_agent` span
-then ended with no exception and no further `chat` span. Models that emit
-reasoning then a tool call with no text part continue normally. Qwen almost
-never emits a leading text part, which is why it looked far more reliable than
-the others in earlier comparisons; those comparisons were skewed by this.
+About 340 tool turns from one morning; "text first" is a regex over the
+serialized attribute. Hand-checked traces: `a9fb204c47180ca64a9e189eab423c60`
+and `fb4a7faff6da5d2ea0aeaab379d672d0` (Pro, text part exactly `"\n\n"`).
+Qwen rarely emits text before a tool call, which is why it looked far more
+reliable; the cross-model comparison from that day undercounts the others.
 
-Caveats on the measurement: it comes from one morning's runs (about 340 tool
-turns), the text-part test is a regex over the serialized
-`gen_ai.output.messages` attribute, and `ended` means "no later `chat` span in
-the trace". I did not reproduce it in isolation outside sparktea.
+### Cause (confirmed by a deterministic test)
 
-### Likely cause (read from source, not confirmed by a test)
+`Agent.RunStream` is deliberately a *stream-until-first-output* API, not a
+streaming version of the full agent loop. It calls
+`runStreamPrompt(..., commitFirstOutput=true)` (`ai/stream_run.go`), and
+`streamedOutput` (`ai/stream_commit.go`) commits the first `TextPart` of a
+response as the run's final output. Tool calls in the same response are still
+executed and settled in history (default graceful end strategy), but the run
+then returns instead of sending the results back to the model. This is
+intended upstream: `ai/stream_commit_test.go`
+`TestRunStreamCommitsTextBeforeToolProcessing` asserts exactly this (output
+is the text, tools ran, three messages in history). The one thing upstream
+could improve is the doc comment on `RunStream`, which says it "executes the
+agent loop like Run", which is not true for this case.
 
-`RunStream` calls `runStreamPrompt(..., commitFirstOutput=true)`
-(`ai/stream_run.go`, `RunStream`/`RunStreamParts`/`ResumeStream`). That sets
-`run.commitStreamedOutput` (`ai/stream_run.go:264`). In the loop
-(`ai/loop.go:2569`), when `commitStreamedOutput` is set, `streamedOutput`
-(`ai/stream_commit.go:15`) is called on the response; for the first `TextPart`
-it returns that text as the committed output (`committed=true`) whenever
-`AllowText` is true, with no check that the text is non-empty or that tool
-calls follow. The loop then runs the tool calls via
-`executeCallsWithCommittedOutput` and returns `r.result(*output)` instead of
-sending the tool results back to the model. Non-streaming `Run` calls
-`runStreamPrompt(..., false)` (`ai/loop.go:72`) and does not take this path.
+A throwaway test (`fakes.FunctionModel` returning `[text, tool_call]` on the
+first request and `"ANSWER: 42"` on the second) gave:
 
-So a response of `[text "\n\n", tool_call run_code]` is treated as "the final
-answer is `\n\n`", the tool is still executed, and the run ends.
+| Entry point | lead text `""` | lead `"\n\n"` | lead `"Let me compute that."` |
+|---|---|---|---|
+| `RunStream` (what sparktea uses) | 2 requests, `ANSWER: 42` | **1 request, output `"\n\n"`** | **1 request, output is the lead text** |
+| `Run` | 2, `ANSWER: 42` | 2, `ANSWER: 42` | 2, `ANSWER: 42` |
+| `Run` + per-run `EventListener` capability | 2, `ANSWER: 42` | 2, `ANSWER: 42` | 2, `ANSWER: 42` |
+| `StartRun` + `Next()` | 2, `ANSWER: 42` | 2, `ANSWER: 42` | 2, `ANSWER: 42` |
 
-### Questions for the reviewer
+The tool ran exactly once in every case. Note it is *any* leading text, not
+just whitespace, so filtering whitespace-only parts would not fix it.
 
-- Is this intended? The reference Python `pydantic-ai` has a similar notion of
-  a streamed text part becoming the final result; check whether Python
-  executes tool calls that follow the text and whether it continues the run.
-  If Python continues, this is a Go port divergence; if it also ends, the
-  question becomes whether a whitespace-only text part should count.
-- Is the cause above right, or does something else (provider adapter,
-  OpenRouter streaming, `AllowText` handling) produce the same effect? A
-  minimal Go test with a fake streaming model that yields `[text "\n\n",
-  tool_call]` and asserts a second request is made would settle it.
-- Does this reproduce on v0.4.0, or did v0.5.0 introduce it?
+### Fix (not applied)
 
-### Workaround options (none applied)
+sparktea calls `RunStream` in `cmd/sparktea/once.go` and `cmd/sparktea/chat.go`
+for a multi-step tool loop, which is the wrong entry point. Two library APIs
+stream events through the whole loop without committing the first output:
 
-1. A model wrapper/middleware in sparktea that drops whitespace-only
-   `TextPart`s from streamed responses before the loop sees them. Keeps
-   streaming. Depends on library hooks not yet checked, and it would not help
-   a model that emits real text before a tool call (that text would still
-   become the final output).
-2. Use non-streaming `Run`. Avoids the path but loses token-by-token display.
-3. Fix upstream: only commit streamed text when the response has no tool
-   calls, or skip committing whitespace-only text. File with a repro once the
-   reviewer confirms the cause.
+1. `agent.StartRun(...)` and loop on `run.Next()` until `ok == false`, then
+   `run.Result()` / `run.Close()`. Closest to the current `for event := range
+   run.Events()` loop, so the event `switch` can stay as is.
+2. `agent.Run(...)` with a per-run capability implementing `ai.EventListener`
+   (`OnEvent`) passed via `ai.WithRunCapabilities`, forwarding events to the
+   TUI channel / stdout. `Run` takes the event-streaming path when such a
+   capability is present (`ai/loop.go`, `hasEventStreamCapability`).
 
-### Impact on results elsewhere in this repo
-
-`monty_codegen.sh` pass rates for DeepSeek Flash, DeepSeek Pro and GLM
-undercount those models because of this, so the cross-model comparison from
-2026-10-10 should not be trusted until it is rerun with a workaround.
+Before switching, check that the chosen path still emits `PartStartEvent` /
+`PartDeltaEvent` token deltas from a real streaming provider (the probe used a
+non-streaming fake), and that cancellation, the Logfire run span, and
+`Result().Messages()` history behave as they do now. Then rerun the
+cross-model `monty_codegen.sh` comparison.
