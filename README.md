@@ -146,6 +146,14 @@ type, and the answer. Flags: `-m provider:model_id`, `-j` parallel cases
 (default 4), `-o` log directory, `-l` to list cases; positional arguments
 filter cases by name substring.
 
+### Claude 5.5 Monty benchmark
+
+![Claude 5.5 Monty Python generation benchmark](results/monty-python-model-comparison.png)
+
+In the October 10, 2026 run, Haiku 5.5 completed 22 of 23 cases for
+$0.0106, while Sonnet 5.5 and Opus 5.5 completed all 23 for $0.1905 and
+$0.3996, respectively. Costs are summed from Logfire's `operation.cost`.
+
 ### Scripting multi-turn sequences
 
 `-prompt` only covers one turn. Pass `-script <file>` instead to run a
