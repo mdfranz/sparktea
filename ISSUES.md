@@ -238,5 +238,16 @@ handling is unchanged. `TestRunTurnContinuesAfterTextBeforeToolCall`
 tool_call]` and fails on the old `RunStream` code (1 request instead of 2).
 Checked live: text still streams in chunks from OpenRouter (24 stdout writes
 for a 206-byte DeepSeek reply), and `monty_codegen.sh` on
-deepseek-v4-pro-0813 went from 9/23 to 23/23. The other models' comparison
-still needs a rerun.
+deepseek-v4-pro-0813 went from 9/23 to 23/23.
+
+`monty_codegen.sh` after the fix, all with the code-mode instruction in place:
+
+| Model | before fix | after fix |
+|---|---|---|
+| qwen/qwen3.8-flash | 23/23 | 23/23 (collected over three runs; OpenRouter/Alibaba 429s, see #11) |
+| ~deepseek-v4-flash-latest | 15/23 | 23/23 |
+| z-ai/glm-5.3-flash | 15/23 | 23/23 |
+| deepseek-v4-pro-0813 | 9/23 | 23/23 |
+
+One run per model. The gap between Qwen and the others was this bug, not
+Code Mode ability.
