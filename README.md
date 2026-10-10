@@ -159,6 +159,9 @@ $0.3996, respectively. Costs are summed from Logfire's `operation.cost`.
 All three models computed the correct result for every case. Haiku's one
 scoring miss was a final-answer formatting error. Opus needed the fewest
 extra calls to adapt its Python to Monty's supported language surface.
+See the [detailed generated-code analysis](results/claude-5-5-monty-analysis.md)
+for methodology, case-by-case behavior, code excerpts, and benchmark
+limitations.
 
 ### Scripting multi-turn sequences
 
