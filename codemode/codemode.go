@@ -125,10 +125,16 @@ func runCodeDefinition() ai.ToolDefinition {
 			"statistics, enum, struct, hashlib, contextlib, operator, string, io, and " +
 			"anything network/process/thread-related (urllib, socket, subprocess, " +
 			"threading) — compute statistics and pick values with plain arithmetic/math " +
-			"instead of importing statistics. Missing names in present modules: " +
-			"functools.lru_cache/cache (memoize with a dict), dataclasses.field/asdict, " +
-			"re.VERBOSE, sys.setrecursionlimit. Only UTF-8, UTF-16, UTF-32 and ASCII " +
-			"codecs exist (no latin-1).\n\n" +
+			"instead of importing statistics. Also missing: heapq, bisect, textwrap, " +
+			"decimal, fractions, abc, uuid, csv, zoneinfo. Missing builtins: dir, " +
+			"globals, vars, compile, callable, complex, input. Missing names in present modules: " +
+			"functools.lru_cache/cache/cmp_to_key (memoize with a dict), " +
+			"dataclasses.field/fields/asdict/replace, dataclass(order=True), re.VERBOSE, " +
+			"sys.setrecursionlimit, asyncio.create_task (use gather), int.to_bytes, " +
+			"str.format_map, date.toordinal, instance __dict__. User classes can't be " +
+			"ordered with __lt__ (sort with key=). Built-in exceptions take zero or " +
+			"one string argument (ValueError('msg'), not ValueError(obj) or " +
+			"ValueError('a', 'b')) and custom exception types can't be defined. Only UTF-8, UTF-16, UTF-32 and ASCII codecs exist (no latin-1).\n\n" +
 			"Also unsupported: class inheritance (so no custom exception classes — raise " +
 			"a built-in like ValueError), method decorators (@property, @staticmethod, " +
 			"@classmethod), super(), bytearray, function attributes like __name__, " +

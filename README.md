@@ -261,11 +261,18 @@ Sandboxing guarantees:
   surface: `sys`, `typing`, `math`, `json`, `re`, `unicodedata`, `datetime`,
   `pathlib`, `os`, `collections`, `itertools`, `functools`, `dataclasses`,
   `asyncio`, `base64`, `binascii`, `copy`, `random`, and `time`. No
-  third-party imports. Notably **not** available: `statistics`, `enum`, and
-  anything network/process/thread-related (`urllib`, `socket`, `subprocess`,
-  `threading`).
+  third-party imports. Notably **not** available: `statistics`, `enum`,
+  `hashlib`, `heapq`, `bisect`, `decimal`, `textwrap`, and anything
+  network/process/thread-related (`urllib`, `socket`, `subprocess`,
+  `threading`). Missing builtins include `dir`, `globals`, `vars`, `compile`,
+  `callable`, `complex`, and `input`; missing names in present modules include
+  `functools.lru_cache`, `dataclasses.field`/`fields`/`replace`, and
+  `asyncio.create_task`.
 - Also unsupported: class inheritance, generator functions/`yield`, `match`,
   `del`, `async with`/`async for`, and PEP 695 type aliases.
+- Built-in exceptions take zero or one string argument (`ValueError('msg')`;
+  `ValueError(1)` or `ValueError('a', 'b')` fails with a misleadingly worded
+  "Internal error in monty"), and custom exception types can't be defined.
 - Each run is capped at 5 seconds wall-clock, 64 MiB memory, and 100 stack
   frames of recursion, so a runaway script can't stall the TUI.
 
