@@ -102,10 +102,20 @@ func New(opts ...Option) *CodeMode {
 	return c
 }
 
-// Setup implements ai.Capability. It only adds a tool — it never hides or
-// replaces anything another capability contributed.
+// instructions steers the model away from Python the Monty sandbox rejects,
+// which otherwise costs a retry per mistake. It rides along with the tool so
+// it only applies to runs where code mode is on.
+const instructions = "The Python environment uses a restricted \"monty\" interpreter: do not use " +
+	"decorators (like @property), pattern matching (match-case), custom Exception " +
+	"subclassing, or standard modules like statistics and hashlib. Instead, write " +
+	"simple, plain Python code using basic loops, conditionals, and manually " +
+	"implemented helpers."
+
+// Setup implements ai.Capability. It adds a tool and a short instruction — it
+// never hides or replaces anything another capability contributed.
 func (c *CodeMode) Setup(reg *ai.CapabilityRegistry) error {
 	reg.AddTool(runCodeDefinition(), c.handleRunCode)
+	reg.AddInstructions(instructions)
 	return nil
 }
 

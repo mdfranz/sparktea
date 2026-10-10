@@ -276,6 +276,11 @@ Sandboxing guarantees:
 - Each run is capped at 5 seconds wall-clock, 64 MiB memory, and 100 stack
   frames of recursion, so a runaway script can't stall the TUI.
 
+When `/code` is on, a short instruction is also added to the system prompt
+telling the model to avoid decorators, `match`, custom exception subclasses, and
+modules like `statistics` and `hashlib` (see `instructions` in
+`codemode/codemode.go`). It is off with code mode, so plain chats are unaffected.
+
 `codemode/codemode_test.go` covers the binding and a Monty v1.0.1 acceptance
 matrix for useful language and standard-library features. The matrix guards
 the embedded runtime against drifting behind the Go API during later upgrades.
