@@ -41,9 +41,11 @@ func (m modelOption) FilterValue() string { return m.label }
 var modelCatalog = []modelOption{
 	{"DeepSeek V4 Flash (latest)", providerOpenRouter, "~deepseek/deepseek-v4-flash-latest"},
 	{"DeepSeek V4 Pro", providerOpenRouter, "deepseek/deepseek-v4-pro"},
+	{"DeepSeek V4 Pro (0813)", providerOpenRouter, "deepseek/deepseek-v4-pro-0813"},
 	{"Kimi (latest)", providerOpenRouter, "~moonshotai/kimi-latest"},
 	{"Qwen 3.8 Flash", providerOpenRouter, "qwen/qwen3.8-flash"},
 	{"GLM Flash (latest)", providerOpenRouter, "~z-ai/glm-flash-latest"},
+	{"GLM 5.3 Flash", providerOpenRouter, "z-ai/glm-5.3-flash"},
 	{"GLM (latest)", providerOpenRouter, "~z-ai/glm-latest"},
 	{"GPT-5.1", providerOpenRouter, "openai/gpt-5.1"},
 	{"Llama 4 Maverick", providerOpenRouter, "meta-llama/llama-4-maverick"},
