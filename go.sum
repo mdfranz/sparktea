@@ -4,8 +4,8 @@ github.com/JohannesKaufmann/dom v0.3.1 h1:J16l9JAHWgkFPR3VIPbQ1gvS0cWab6laK1q7PF
 github.com/JohannesKaufmann/dom v0.3.1/go.mod h1:BZPkf8ZeYrBgABjwJn9iiKt8aiCtkxpHkevms+Yp2DE=
 github.com/JohannesKaufmann/html-to-markdown/v2 v2.5.2 h1:XFJZFWESIWlUEHHjzBuv8RvrtCWnSGlimEX17ysSDb8=
 github.com/JohannesKaufmann/html-to-markdown/v2 v2.5.2/go.mod h1:BHWO8lJzttJLqwuV8Rb1B3OG2OSzLbssZDI1FRg2eAA=
-github.com/Kludex/pydantic-ai-go v0.4.0 h1:ldQ/NZdJy9H72GKGxUjjVzvFCVNbjD4B9KcCz9trz1k=
-github.com/Kludex/pydantic-ai-go v0.4.0/go.mod h1:Jo6vsG8XnJl9HG+ObiRJ8XwIWqBhQ1UpgWRKLnpWyWc=
+github.com/Kludex/pydantic-ai-go v0.5.0 h1:PCstkHpnVz/GMo9JN1kISz23UTl167UdSbwEJUPLpVE=
+github.com/Kludex/pydantic-ai-go v0.5.0/go.mod h1:Hnlvol5LxJXlGDklqO0U71QekyOwGYNFAhO/eSoTQEs=
 github.com/MakeNowJust/heredoc v1.0.0 h1:cXCdzVdstXyiTqTvfqk9SDHpKNjxuom+DOlyEeQ4pzQ=
 github.com/MakeNowJust/heredoc v1.0.0/go.mod h1:mG5amYoWBHf8vpLOuehzbGGw0EHxpZZ6lCpQ4fNJ8LE=
 github.com/PuerkitoBio/goquery v1.13.0 h1:mqHbjD7Jmnul4DTR24LKTjo1uUmHUh072kteGV+xpFM=
@@ -138,8 +138,8 @@ github.com/muesli/termenv v0.16.0 h1:S5AlUN9dENB57rsbnkPyfdGuWIlkmzJjbFf0Tf5FWUc
 github.com/muesli/termenv v0.16.0/go.mod h1:ZRfOIKPFDYQoDFF4Olj7/QJbW60Ol/kL1pU3VfY/Cnk=
 github.com/pmezard/go-difflib v1.0.0 h1:4DBwDE0NGyQoBHbLQYPwSUPoCMWR5BEzIk/f1lZbAQM=
 github.com/pmezard/go-difflib v1.0.0/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=
-github.com/pydantic/genai-prices/packages/go v0.1.6 h1:0RuIFN4NPYJaWNAbK+rOyvHltyP5dbyHFi50qMQoveM=
-github.com/pydantic/genai-prices/packages/go v0.1.6/go.mod h1:ueaSzJGAeYLAGOmYLQb4I9DFmB/EEs2DmHa1rNwIBKk=
+github.com/pydantic/genai-prices/packages/go v0.1.8 h1:fjiqu/iCE/VW+mLnPXFQ0TI3JLG8uHBUvhCEd7p1ENo=
+github.com/pydantic/genai-prices/packages/go v0.1.8/go.mod h1:ueaSzJGAeYLAGOmYLQb4I9DFmB/EEs2DmHa1rNwIBKk=
 github.com/rivo/uniseg v0.1.0/go.mod h1:J6wj4VEh+S6ZtnVlnTBMWIodfgj8LQOQFoIToxlJtxc=
 github.com/rivo/uniseg v0.2.0/go.mod h1:J6wj4VEh+S6ZtnVlnTBMWIodfgj8LQOQFoIToxlJtxc=
 github.com/rivo/uniseg v0.4.7 h1:WUdvkW8uEhrYfLC4ZzdpI2ztxP1I582+49Oc5Mq64VQ=

@@ -3,7 +3,7 @@ module github.com/mdfranz/sparktea
 go 1.27.0
 
 require (
-	github.com/Kludex/pydantic-ai-go v0.4.0
+	github.com/Kludex/pydantic-ai-go v0.5.0
 	github.com/charmbracelet/bubbles v1.0.0
 	github.com/charmbracelet/bubbletea v1.3.10
 	github.com/charmbracelet/glamour v1.0.0
@@ -61,7 +61,7 @@ require (
 	github.com/muesli/cancelreader v0.2.2 // indirect
 	github.com/muesli/reflow v0.3.0 // indirect
 	github.com/muesli/termenv v0.16.0 // indirect
-	github.com/pydantic/genai-prices/packages/go v0.1.6 // indirect
+	github.com/pydantic/genai-prices/packages/go v0.1.8 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/sahilm/fuzzy v0.1.1 // indirect
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.3 // indirect
