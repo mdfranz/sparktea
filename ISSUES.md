@@ -147,11 +147,11 @@ provider adapters' request serialization, not in how sparktea builds or
 replays `m.history`. #4 does: once verified live on v0.4.0, add
 `providerOpenAI` back to `supportsNativeWebSearch()` in `models.go`.
 
-## sparktea: `RunStream` ends the run when text precedes a tool call (OPEN, sparktea-side)
+## sparktea: `RunStream` ends the run when text precedes a tool call (FIXED, sparktea-side)
 
 Found 2026-10-10 with `monty_codegen.sh` on pydantic-ai-go v0.5.0. **Status:
-cause confirmed; not a pydantic-ai-go bug. Fix belongs in sparktea and is not
-applied yet.** An earlier version of this section called it an upstream bug;
+fixed in sparktea by switching both call sites to `StartRun`; not a
+pydantic-ai-go bug.** An earlier version of this section called it an upstream bug;
 that was wrong.
 
 ### Symptom
@@ -210,7 +210,7 @@ first request and `"ANSWER: 42"` on the second) gave:
 The tool ran exactly once in every case. Note it is *any* leading text, not
 just whitespace, so filtering whitespace-only parts would not fix it.
 
-### Fix (not applied)
+### Fix
 
 sparktea calls `RunStream` in `cmd/sparktea/once.go` and `cmd/sparktea/chat.go`
 for a multi-step tool loop, which is the wrong entry point. Two library APIs
@@ -229,3 +229,14 @@ Before switching, check that the chosen path still emits `PartStartEvent` /
 non-streaming fake), and that cancellation, the Logfire run span, and
 `Result().Messages()` history behave as they do now. Then rerun the
 cross-model `monty_codegen.sh` comparison.
+
+**Applied 2026-10-10:** option 1. `runTurn` (`once.go`, used by `-prompt` and
+`-script`) and the TUI's `startStreamWithWebFetch` (`chat.go`) now call
+`StartRun` and range over `run.Events()`, with `defer run.Close()`; the event
+handling is unchanged. `TestRunTurnContinuesAfterTextBeforeToolCall`
+(`once_test.go`) drives `runTurn` with a fake model returning `[text,
+tool_call]` and fails on the old `RunStream` code (1 request instead of 2).
+Checked live: text still streams in chunks from OpenRouter (24 stdout writes
+for a 206-byte DeepSeek reply), and `monty_codegen.sh` on
+deepseek-v4-pro-0813 went from 9/23 to 23/23. The other models' comparison
+still needs a rerun.
