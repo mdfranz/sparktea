@@ -3,7 +3,9 @@
 Tracking known bugs in dependencies that affect sparktea but are fixed
 upstream, not here. Update the status line when an issue closes, and check
 whether sparktea still needs to work around it. All four issues below are
-fixed in pydantic-ai-go v0.4.0 (2026-09-14), which sparktea now uses.
+fixed in pydantic-ai-go v0.4.0 (2026-09-14), which sparktea now uses. The
+last section is not an upstream bug: it records a sparktea usage problem
+found while investigating what first looked like one.
 
 ## pydantic-ai-go: thinking-block replay
 
@@ -144,3 +146,108 @@ README's "Updating pydantic-ai-go") and re-run the matching repro above.
 provider adapters' request serialization, not in how sparktea builds or
 replays `m.history`. #4 does: once verified live on v0.4.0, add
 `providerOpenAI` back to `supportsNativeWebSearch()` in `models.go`.
+
+## sparktea: `RunStream` ends the run when text precedes a tool call (FIXED, sparktea-side)
+
+Found 2026-10-10 with `monty_codegen.sh` on pydantic-ai-go v0.5.0. **Status:
+fixed in sparktea by switching both call sites to `StartRun`; not a
+pydantic-ai-go bug.** An earlier version of this section called it an upstream bug;
+that was wrong.
+
+### Symptom
+
+With `-code -prompt` and in the TUI, some models end a run right after the
+first `run_code` call, whether it succeeded or failed. No follow-up request
+carries the tool result back, no error is raised, and the final text is the
+text the model emitted *before* the tool call (often just `"\n\n"`).
+`monty_codegen.sh` reports these as `WRONG` with 0 failed calls.
+
+### Measured (Logfire project `tomfoolery`, service `sparktea`, 2026-10-10)
+
+For every `chat <model>` span whose finish reason was `tool_call`: does
+`gen_ai.output.messages` have a `text` part before the tool call (a
+`reasoning` part does not count), and is there a later `chat` span in the
+same trace?
+
+| Model | tool-call turns with text first | run ended after that call | tool-call turns without | run ended |
+|---|---|---|---|---|
+| deepseek-v4-pro-0813 | 26 / 48 | 26 / 26 | 22 | 0 |
+| ~deepseek-v4-flash-latest | 25 / 111 | 25 / 25 | 86 | 0 |
+| z-ai/glm-5.3-flash | 6 / 30 | 6 / 6 | 24 | 0 |
+| qwen/qwen3.8-flash | 1 / 148 | 1 / 1 | 147 | 0 |
+
+About 340 tool turns from one morning; "text first" is a regex over the
+serialized attribute. Hand-checked traces: `a9fb204c47180ca64a9e189eab423c60`
+and `fb4a7faff6da5d2ea0aeaab379d672d0` (Pro, text part exactly `"\n\n"`).
+Qwen rarely emits text before a tool call, which is why it looked far more
+reliable; the cross-model comparison from that day undercounts the others.
+
+### Cause (confirmed by a deterministic test)
+
+`Agent.RunStream` is deliberately a *stream-until-first-output* API, not a
+streaming version of the full agent loop. It calls
+`runStreamPrompt(..., commitFirstOutput=true)` (`ai/stream_run.go`), and
+`streamedOutput` (`ai/stream_commit.go`) commits the first `TextPart` of a
+response as the run's final output. Tool calls in the same response are still
+executed and settled in history (default graceful end strategy), but the run
+then returns instead of sending the results back to the model. This is
+intended upstream: `ai/stream_commit_test.go`
+`TestRunStreamCommitsTextBeforeToolProcessing` asserts exactly this (output
+is the text, tools ran, three messages in history). The one thing upstream
+could improve is the doc comment on `RunStream`, which says it "executes the
+agent loop like Run", which is not true for this case.
+
+A throwaway test (`fakes.FunctionModel` returning `[text, tool_call]` on the
+first request and `"ANSWER: 42"` on the second) gave:
+
+| Entry point | lead text `""` | lead `"\n\n"` | lead `"Let me compute that."` |
+|---|---|---|---|
+| `RunStream` (what sparktea uses) | 2 requests, `ANSWER: 42` | **1 request, output `"\n\n"`** | **1 request, output is the lead text** |
+| `Run` | 2, `ANSWER: 42` | 2, `ANSWER: 42` | 2, `ANSWER: 42` |
+| `Run` + per-run `EventListener` capability | 2, `ANSWER: 42` | 2, `ANSWER: 42` | 2, `ANSWER: 42` |
+| `StartRun` + `Next()` | 2, `ANSWER: 42` | 2, `ANSWER: 42` | 2, `ANSWER: 42` |
+
+The tool ran exactly once in every case. Note it is *any* leading text, not
+just whitespace, so filtering whitespace-only parts would not fix it.
+
+### Fix
+
+sparktea calls `RunStream` in `cmd/sparktea/once.go` and `cmd/sparktea/chat.go`
+for a multi-step tool loop, which is the wrong entry point. Two library APIs
+stream events through the whole loop without committing the first output:
+
+1. `agent.StartRun(...)` and loop on `run.Next()` until `ok == false`, then
+   `run.Result()` / `run.Close()`. Closest to the current `for event := range
+   run.Events()` loop, so the event `switch` can stay as is.
+2. `agent.Run(...)` with a per-run capability implementing `ai.EventListener`
+   (`OnEvent`) passed via `ai.WithRunCapabilities`, forwarding events to the
+   TUI channel / stdout. `Run` takes the event-streaming path when such a
+   capability is present (`ai/loop.go`, `hasEventStreamCapability`).
+
+Before switching, check that the chosen path still emits `PartStartEvent` /
+`PartDeltaEvent` token deltas from a real streaming provider (the probe used a
+non-streaming fake), and that cancellation, the Logfire run span, and
+`Result().Messages()` history behave as they do now. Then rerun the
+cross-model `monty_codegen.sh` comparison.
+
+**Applied 2026-10-10:** option 1. `runTurn` (`once.go`, used by `-prompt` and
+`-script`) and the TUI's `startStreamWithWebFetch` (`chat.go`) now call
+`StartRun` and range over `run.Events()`, with `defer run.Close()`; the event
+handling is unchanged. `TestRunTurnContinuesAfterTextBeforeToolCall`
+(`once_test.go`) drives `runTurn` with a fake model returning `[text,
+tool_call]` and fails on the old `RunStream` code (1 request instead of 2).
+Checked live: text still streams in chunks from OpenRouter (24 stdout writes
+for a 206-byte DeepSeek reply), and `monty_codegen.sh` on
+deepseek-v4-pro-0813 went from 9/23 to 23/23.
+
+`monty_codegen.sh` after the fix, all with the code-mode instruction in place:
+
+| Model | before fix | after fix |
+|---|---|---|
+| qwen/qwen3.8-flash | 23/23 | 23/23 (collected over three runs; OpenRouter/Alibaba 429s, see #11) |
+| ~deepseek-v4-flash-latest | 15/23 | 23/23 |
+| z-ai/glm-5.3-flash | 15/23 | 23/23 |
+| deepseek-v4-pro-0813 | 9/23 | 23/23 |
+
+One run per model. The gap between Qwen and the others was this bug, not
+Code Mode ability.

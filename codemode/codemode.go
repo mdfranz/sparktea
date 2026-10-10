@@ -102,10 +102,20 @@ func New(opts ...Option) *CodeMode {
 	return c
 }
 
-// Setup implements ai.Capability. It only adds a tool — it never hides or
-// replaces anything another capability contributed.
+// instructions steers the model away from Python the Monty sandbox rejects,
+// which otherwise costs a retry per mistake. It rides along with the tool so
+// it only applies to runs where code mode is on.
+const instructions = "The Python environment uses a restricted \"monty\" interpreter: do not use " +
+	"decorators (like @property), pattern matching (match-case), custom Exception " +
+	"subclassing, or standard modules like statistics and hashlib. Instead, write " +
+	"simple, plain Python code using basic loops, conditionals, and manually " +
+	"implemented helpers."
+
+// Setup implements ai.Capability. It adds a tool and a short instruction — it
+// never hides or replaces anything another capability contributed.
 func (c *CodeMode) Setup(reg *ai.CapabilityRegistry) error {
 	reg.AddTool(runCodeDefinition(), c.handleRunCode)
+	reg.AddInstructions(instructions)
 	return nil
 }
 
@@ -125,10 +135,16 @@ func runCodeDefinition() ai.ToolDefinition {
 			"statistics, enum, struct, hashlib, contextlib, operator, string, io, and " +
 			"anything network/process/thread-related (urllib, socket, subprocess, " +
 			"threading) — compute statistics and pick values with plain arithmetic/math " +
-			"instead of importing statistics. Missing names in present modules: " +
-			"functools.lru_cache/cache (memoize with a dict), dataclasses.field/asdict, " +
-			"re.VERBOSE, sys.setrecursionlimit. Only UTF-8, UTF-16, UTF-32 and ASCII " +
-			"codecs exist (no latin-1).\n\n" +
+			"instead of importing statistics. Also missing: heapq, bisect, textwrap, " +
+			"decimal, fractions, abc, uuid, csv, zoneinfo. Missing builtins: dir, " +
+			"globals, vars, compile, callable, complex, input. Missing names in present modules: " +
+			"functools.lru_cache/cache/cmp_to_key (memoize with a dict), " +
+			"dataclasses.field/fields/asdict/replace, dataclass(order=True), re.VERBOSE, " +
+			"sys.setrecursionlimit, asyncio.create_task (use gather), int.to_bytes, " +
+			"str.format_map, date.toordinal, instance __dict__. User classes can't be " +
+			"ordered with __lt__ (sort with key=). Built-in exceptions take zero or " +
+			"one string argument (ValueError('msg'), not ValueError(obj) or " +
+			"ValueError('a', 'b')) and custom exception types can't be defined. Only UTF-8, UTF-16, UTF-32 and ASCII codecs exist (no latin-1).\n\n" +
 			"Also unsupported: class inheritance (so no custom exception classes — raise " +
 			"a built-in like ValueError), method decorators (@property, @staticmethod, " +
 			"@classmethod), super(), bytearray, function attributes like __name__, " +
