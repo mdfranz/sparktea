@@ -167,20 +167,25 @@ func runTurn(
 	logLocal(slog.LevelInfo, "turn_started", startArgs...)
 	runTracer, runCtx := startRunTracer(ctx, "sparktea turn")
 	runTracer.annotate(startArgs...)
+	watchdog := newStallWatchdog(runCtx)
+	defer watchdog.stop()
 
 	toolErrors := 0
 	// StartRun, not RunStream: RunStream stops at the first output, so text a
 	// model writes before a tool call would end the turn before the tool
 	// result reaches the model (see ISSUES.md).
-	run, err := agent.StartRun(runCtx, prompt, struct{}{}, runOpts...)
+	run, err := agent.StartRun(watchdog.Context(), prompt, struct{}{}, runOpts...)
 	if err != nil {
+		err = watchdog.err(err)
 		runTracer.end(err)
 		logLocalError("turn_failed", err, "mode", mode, "provider", string(option.provider), "model", option.modelID)
 		return history, err
 	}
 	defer run.Close()
 	for event, err := range run.Events() {
+		watchdog.reset()
 		if err != nil {
+			err = watchdog.err(err)
 			runTracer.end(err)
 			logLocalError("turn_failed", err, "mode", mode, "provider", string(option.provider), "model", option.modelID)
 			return history, err

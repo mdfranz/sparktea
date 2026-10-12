@@ -55,6 +55,23 @@ Keys:
 sparktea disables pydantic-ai-go's first-run stderr banner so it doesn't
 draw over the TUI or script output.
 
+### Stalled streams
+
+A provider sometimes stops sending partway through a response without
+closing the connection. Through OpenRouter, the request can then hang for
+about 10 minutes before the connection resets.
+
+sparktea cancels a turn after 120 s with no events from the run, failing it
+with `model stream stalled`. Text, thinking and tool-call chunks all count,
+and so do tool calls and their results. It applies to the TUI, `-prompt` and
+`-script`.
+
+`SPARKTEA_STALL_TIMEOUT` changes the limit; it takes a Go duration such as
+`3m`. Raise it for reasoning models that think for a long time without
+streaming anything, or set it to `0` to turn the watchdog off.
+
+Stalled turns are logged locally as `turn_failed` with `stalled: true`.
+
 ## Building
 
 `go run ./cmd/sparktea` is fine for iterating, but a `Makefile` is included for a real
