@@ -19,12 +19,13 @@ import (
 // many run_code prompts through Code Mode for testing without hand-typing
 // each one into the chat screen.
 type cliOptions struct {
-	prompt     string
-	model      string
-	code       bool
-	search     bool
-	listModels bool
-	script     string
+	prompt      string
+	model       string
+	code        bool
+	codeBackend codemode.Backend
+	search      bool
+	listModels  bool
+	script      string
 }
 
 // parseCLIFlags parses args (os.Args[1:]). flag.ErrHelp is returned as-is on
@@ -35,10 +36,17 @@ func parseCLIFlags(args []string) (cliOptions, error) {
 	fs.StringVar(&opts.prompt, "prompt", "", "Run this prompt once, non-interactively, and exit (skips the TUI).")
 	fs.StringVar(&opts.model, "model", "", "Model ID to use with -prompt or -script, e.g. claude-haiku-4-5-20251001, or provider:model_id (e.g. anthropic:claude-haiku-4-5-20251001) to disambiguate (see -list-models). Defaults to the first available model.")
 	fs.BoolVar(&opts.code, "code", false, "Enable Code Mode's run_code tool for this run.")
+	backend := fs.String("code-backend", string(codemode.BackendMonty), "What runs Code Mode's Python with -prompt or -script: \"monty\" (sandbox) or \"cpython\" (local CPython, not sandboxed).")
 	fs.BoolVar(&opts.search, "search", false, "Enable native web search for this run, if the model supports it.")
 	fs.BoolVar(&opts.listModels, "list-models", false, "List available models as provider:model_id (API key present) and exit.")
 	fs.StringVar(&opts.script, "script", "", "Run a sequence of prompts and commands from this file, non-interactively, sharing one growing conversation across turns (skips the TUI; mutually exclusive with -prompt). See README's \"Scripting multi-turn sequences\" for the file format.")
 	if err := fs.Parse(args); err != nil {
+		return cliOptions{}, err
+	}
+	var err error
+	if opts.codeBackend, err = codemode.ParseBackend(*backend); err != nil {
+		err = fmt.Errorf("sparktea: -code-backend: %w", err)
+		fmt.Fprintln(os.Stderr, err)
 		return cliOptions{}, err
 	}
 	if opts.prompt != "" && opts.script != "" {
@@ -123,7 +131,7 @@ func runOnce(ctx context.Context, option modelOption, opts cliOptions) error {
 	var runOpts []ai.RunOption
 	if opts.code {
 		runOpts = append(runOpts, ai.WithRunCapabilities(
-			codemode.New(codemode.WithTelemetryContent(logfireSendContent())),
+			codemode.New(codemode.WithTelemetryContent(logfireSendContent()), codemode.WithBackend(opts.codeBackend)),
 		))
 	}
 	searchEnabled := opts.search && option.supportsNativeWebSearch()
@@ -133,8 +141,11 @@ func runOnce(ctx context.Context, option modelOption, opts cliOptions) error {
 		runOpts = append(runOpts, ai.WithRunNativeTools(ai.WebSearchTool{Optional: true}))
 	}
 
-	_, err := runTurn(ctx, agent, option, opts.prompt, nil, runOpts, "one_shot",
-		"web_search", searchEnabled, "code_mode", opts.code)
+	logArgs := []any{"web_search", searchEnabled, "code_mode", opts.code}
+	if opts.code {
+		logArgs = append(logArgs, "code_backend", string(opts.codeBackend))
+	}
+	_, err := runTurn(ctx, agent, option, opts.prompt, nil, runOpts, "one_shot", logArgs...)
 	return err
 }
 
@@ -155,20 +166,26 @@ func runTurn(
 	startArgs := append([]any{"mode", mode, "provider", string(option.provider), "model", option.modelID}, extraLogArgs...)
 	logLocal(slog.LevelInfo, "turn_started", startArgs...)
 	runTracer, runCtx := startRunTracer(ctx, "sparktea turn")
+	runTracer.annotate(startArgs...)
+	watchdog := newStallWatchdog(runCtx)
+	defer watchdog.stop()
 
 	toolErrors := 0
 	// StartRun, not RunStream: RunStream stops at the first output, so text a
 	// model writes before a tool call would end the turn before the tool
 	// result reaches the model (see ISSUES.md).
-	run, err := agent.StartRun(runCtx, prompt, struct{}{}, runOpts...)
+	run, err := agent.StartRun(watchdog.Context(), prompt, struct{}{}, runOpts...)
 	if err != nil {
+		err = watchdog.err(err)
 		runTracer.end(err)
 		logLocalError("turn_failed", err, "mode", mode, "provider", string(option.provider), "model", option.modelID)
 		return history, err
 	}
 	defer run.Close()
 	for event, err := range run.Events() {
+		watchdog.reset()
 		if err != nil {
+			err = watchdog.err(err)
 			runTracer.end(err)
 			logLocalError("turn_failed", err, "mode", mode, "provider", string(option.provider), "model", option.modelID)
 			return history, err

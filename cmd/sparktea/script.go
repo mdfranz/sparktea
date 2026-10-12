@@ -95,7 +95,7 @@ func runScript(ctx context.Context, options []modelOption, opts cliOptions) erro
 		return err
 	}
 	agent := newAgentFor(option)
-	codeModeCapability := codemode.New(codemode.WithTelemetryContent(logfireSendContent()))
+	codeModeCapability := codemode.New(codemode.WithTelemetryContent(logfireSendContent()), codemode.WithBackend(opts.codeBackend))
 
 	var history []ai.ModelMessage
 	var searchEnabled, codeEnabled bool
@@ -139,8 +139,11 @@ func runScript(ctx context.Context, options []modelOption, opts cliOptions) erro
 
 			fmt.Fprintf(os.Stderr, "\n=== turn %d: %s:%s (search=%v code=%v) ===\n",
 				turn, option.provider, option.modelID, effectiveSearch, codeEnabled)
-			messages, err := runTurn(ctx, agent, option, step.arg, history, runOpts, "script",
-				"web_search", effectiveSearch, "code_mode", codeEnabled, "script_turn", turn)
+			logArgs := []any{"web_search", effectiveSearch, "code_mode", codeEnabled, "script_turn", turn}
+			if codeEnabled {
+				logArgs = append(logArgs, "code_backend", string(opts.codeBackend))
+			}
+			messages, err := runTurn(ctx, agent, option, step.arg, history, runOpts, "script", logArgs...)
 			if err != nil {
 				return fmt.Errorf("turn %d: %w", turn, err)
 			}

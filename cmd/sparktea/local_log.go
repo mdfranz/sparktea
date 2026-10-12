@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -124,6 +125,9 @@ func logLocal(level slog.Level, name string, args ...any) {
 
 func logLocalError(name string, err error, args ...any) {
 	args = append(args, "error_type", errorType(err))
+	if errors.Is(err, errStalled) {
+		args = append(args, "stalled", true)
+	}
 	logLocal(slog.LevelError, name, args...)
 }
 

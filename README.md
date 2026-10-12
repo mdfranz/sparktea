@@ -55,6 +55,23 @@ Keys:
 sparktea disables pydantic-ai-go's first-run stderr banner so it doesn't
 draw over the TUI or script output.
 
+### Stalled streams
+
+A provider sometimes stops sending partway through a response without
+closing the connection. Through OpenRouter, the request can then hang for
+about 10 minutes before the connection resets.
+
+sparktea cancels a turn after 120 s with no events from the run, failing it
+with `model stream stalled`. Text, thinking and tool-call chunks all count,
+and so do tool calls and their results. It applies to the TUI, `-prompt` and
+`-script`.
+
+`SPARKTEA_STALL_TIMEOUT` changes the limit; it takes a Go duration such as
+`3m`. Raise it for reasoning models that think for a long time without
+streaming anything, or set it to `0` to turn the watchdog off.
+
+Stalled turns are logged locally as `turn_failed` with `stalled: true`.
+
 ## Building
 
 `go run ./cmd/sparktea` is fine for iterating, but a `Makefile` is included for a real
@@ -117,6 +134,9 @@ sparktea -model anthropic:claude-haiku-4-5-20251001 -code \
   model.
 - `-code` / `-search` enable Code Mode / native web search for that one run,
   same as `/code` and `/search` in the TUI.
+- `-code-backend cpython` runs Code Mode's Python in local CPython instead of
+  Monty (see "Local CPython backend" under Code Mode). CLI only; the TUI
+  always uses Monty.
 - The model's answer streams to stdout; thinking, tool calls (including the
   exact `run_code` argument and result), and a final usage line go to
   stderr — redirect it away (`2>/dev/null`) for just the answer, or capture
@@ -135,16 +155,71 @@ provider deprecated), as opposed to a bug in sparktea's own request
 building. Off by default since it's one call per catalog entry rather than
 one per provider, so it's the slowest and priciest check here.
 
-`./monty_codegen.sh` measures how well a model's generated Python runs on
+[`./monty_codegen.sh`](monty_codegen.sh) measures how well a model's generated Python runs on
 Monty. It sends 23 small tasks with known answers through `-code -prompt`.
 Most tasks are worded to tempt the model toward something Monty doesn't
 support (inheritance, generators, `match`, `enum`, `hashlib`, deep
 recursion; see Monty's
 [limitations docs](https://github.com/pydantic/monty/tree/main/docs/limitations)).
 For each case it reports pass/fail, `run_code` calls, failed calls by error
-type, and the answer. Flags: `-m provider:model_id`, `-j` parallel cases
-(default 4), `-o` log directory, `-l` to list cases; positional arguments
-filter cases by name substring.
+type, and the answer. Flags: `-m provider:model_id`, `-b cpython` to run the
+same tasks on local CPython for comparison, `-j` parallel cases (default 4),
+`-o` log directory, `-l` to list cases; positional arguments filter cases by
+name substring.
+
+### Claude 5.5 Monty benchmark
+
+![Claude 5.5 Monty Python generation benchmark](results/monty-python-model-comparison.png)
+
+In the October 10, 2026 run, Haiku 5.5 completed 22 of 23 cases for
+$0.0106, while Sonnet 5.5 and Opus 5.5 completed all 23 for $0.1905 and
+$0.3996, respectively. Costs are summed from Logfire's `operation.cost`.
+
+![Claude 5.5 generated Python code review](results/monty-python-code-review.png)
+
+All three models computed the correct result for every case. Haiku's one
+scoring miss was a final-answer formatting error. Opus needed the fewest
+extra calls to adapt its Python to Monty's supported language surface.
+See the [detailed generated-code analysis](results/claude-5-5-monty-analysis.md)
+for methodology, case-by-case behavior, code excerpts, and benchmark
+limitations.
+
+### OpenRouter Monty runs
+
+![OpenRouter Monty Python generation benchmark](results/openrouter-monty-model-comparison.png)
+
+![OpenRouter generated Python code review](results/openrouter-monty-code-review.png)
+
+In an October 12, 2026 retest on the same code as the Claude 5.5 run, Qwen
+3.8 Flash, DeepSeek V4 Flash, GLM 5.3 Flash and DeepSeek V4 Pro (0813) all
+completed 23 of 23 cases.
+
+- **Cost:** the three Flash models cost $0.012–0.015 per run, close to
+  Haiku 5.5. DeepSeek V4 Pro cost $0.119.
+- **Retries:** they needed more `run_code` retries than the Claude models
+  (10–25 extra calls, against 2–7).
+- **Time:** they were 3–5 times slower per case.
+
+On October 10, under `RunStream`, the three non-Qwen models scored 9 to 15.
+See [results/openrouter-monty-codegen.md](results/openrouter-monty-codegen.md)
+for the side-by-side table, per-case results, error types, and cost.
+
+### Monty vs. CPython backends
+
+![Monty vs. CPython Code Mode backends](results/monty-vs-cpython.png)
+
+On October 12, 2026, six models ran the same tasks on both Code Mode
+backends.
+
+- **Accuracy:** no change.
+- **Cost:** 51–76% lower on CPython.
+- **Retries:** the open models went from 7–9 failed calls to 1–2.
+
+The saving comes from fewer retries and from a smaller prompt: Monty's tool
+description and instruction add about 2,000 characters to every request. See
+[results/monty-vs-cpython.md](results/monty-vs-cpython.md).
+
+[results/README.md](results/README.md) indexes all benchmark reports and graphics.
 
 ### Scripting multi-turn sequences
 
@@ -223,6 +298,30 @@ Code Mode also attaches gomonty's `monty.run` execution span beneath the
 agent's `run_code` tool span, including interpreter timing and, by default,
 the bounded result and captured `print()` output.
 
+With `-code-backend cpython`, the `run_code` span has a `python.run` child
+instead. Its attributes:
+
+- `python.exit_code` and `python.timed_out`;
+- `python.exec_ms`: the script's own run time. The span's duration minus
+  this is roughly the process startup cost.
+- `python.code_bytes`;
+- with content on, `python.stderr` and `python.output`, each truncated to
+  4 KiB.
+
+A failed script sets the span status to its exception line.
+
+The `sparktea turn` span for `-prompt` and `-script` runs carries
+`sparktea.*` attributes, so turns can be grouped by mode in queries:
+
+- `sparktea.provider` and `sparktea.model`;
+- `sparktea.web_search` and `sparktea.code_mode`;
+- `sparktea.code_backend`, when code mode is on.
+
+The turn span is also tagged (`logfire.tags`) for filtering in the Logfire
+UI: `monty` or `cpython` when code mode is on, and `web_search` when search
+is on. Turns before October 12, 2026 have no tags, and some turns on that
+day recorded the CPython backend as `python`.
+
 To keep conversation content local and send only trace structure, token counts,
 and cost, set `LOGFIRE_SEND_CONTENT=0` alongside `LOGFIRE_TOKEN`:
 
@@ -235,12 +334,18 @@ go run ./cmd/sparktea
 Content capture is configured at startup, not per turn. Only use the default
 after confirming that the destination Logfire project is appropriate for the
 conversation content. The opt-out also removes Monty results and `print()`
-events while retaining its execution span and timing attributes.
+events while retaining its execution span and timing attributes. For the
+CPython backend it drops `python.stderr` and `python.output`, and the span
+status keeps only the exception type.
 
 Without `LOGFIRE_TOKEN` set, none of this runs — no OTel providers are
 installed and agents behave exactly as before.
 
 ## Code Mode
+
+For how both Code Mode backends are built on pydantic-ai-go (the
+capability, retry handling, events, the local workspace and telemetry), see
+[CODE-MODE.md](CODE-MODE.md).
 
 `/code` (default off) gives the model a single `run_code` tool: it writes
 Python, sparktea runs it, the model gets the result back. This is
@@ -291,6 +396,32 @@ resource-limit violation comes back to the model as a bounded retry prompt
 (`*ai.RetryError`, capped at 20 cumulative failures for the run) rather than
 a hard failure, so it can see what went wrong and retry with corrected
 code — without a broken-code loop running forever.
+
+### Local CPython backend
+
+`-code-backend cpython` (with `-prompt` or `-script`) keeps the same
+`run_code` tool but runs the script in local CPython through pydantic-ai-go's
+local workspace (`ai.NewLocalWorkspaceBackend`). It exists to measure what
+Monty's limits cost: the same tasks with the full language and standard
+library. See `codemode/python.go`.
+
+- **Not a sandbox.** Scripts run as your user, with network access, and can
+  reach the host filesystem. Only use it for benchmarking with prompts you
+  trust.
+- **What is limited:**
+  - each call gets a fresh process and a fresh scratch directory, set as
+    `HOME` and removed afterwards;
+  - only `PATH` and locale variables are passed through, so API keys and
+    `LOGFIRE_TOKEN` don't reach the script;
+  - the 5-second timeout matches Monty's;
+  - address space is capped at 512 MiB, since CPython needs more headroom
+    than Monty's 64 MiB heap;
+  - CPython's own recursion limit (1000) applies.
+- **Same behavior as Monty:** the last expression's value and `print()`
+  output come back in the same shape as with Monty, and errors come back as
+  retry prompts with the exception line first.
+- **Different prompt:** the tool description describes CPython and leaves
+  out Monty's list of limits, and the Monty system instruction isn't added.
 
 **Current limitation**: the sandbox is self-contained — the model can't yet
 call sparktea's own tools (e.g. web search) as functions from inside a
