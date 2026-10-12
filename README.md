@@ -183,6 +183,8 @@ On October 10, under `RunStream`, the three non-Qwen models scored 9 to 15.
 See [results/openrouter-monty-codegen.md](results/openrouter-monty-codegen.md)
 for the side-by-side table, per-case results, error types, and cost.
 
+[results/README.md](results/README.md) indexes all benchmark reports and graphics.
+
 ### Scripting multi-turn sequences
 
 `-prompt` only covers one turn. Pass `-script <file>` instead to run a
