@@ -52,7 +52,7 @@ func defaultLimits() *monty.ResourceLimits {
 type CodeMode struct {
 	backend          Backend
 	python           string
-	tracer           trace.Tracer // python.run spans (BackendPython)
+	tracer           trace.Tracer // python.run spans (BackendCPython)
 	limits           *monty.ResourceLimits
 	telemetry        monty.TelemetryHandler
 	telemetryOptions monty.TelemetryOptions
@@ -126,7 +126,7 @@ func (c *CodeMode) Backend() Backend { return c.backend }
 // instruction — it never hides or replaces anything another capability
 // contributed.
 func (c *CodeMode) Setup(reg *ai.CapabilityRegistry) error {
-	if c.backend == BackendPython {
+	if c.backend == BackendCPython {
 		reg.AddTool(runCodePythonDefinition(), c.handleRunPython)
 		return nil
 	}

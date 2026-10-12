@@ -73,11 +73,11 @@ func TestCodeBackendFlag(t *testing.T) {
 	if err != nil || opts.codeBackend != codemode.BackendMonty {
 		t.Fatalf("default backend = %q, %v; want monty", opts.codeBackend, err)
 	}
-	opts, err = parseCLIFlags([]string{"-prompt", "hi", "-code", "-code-backend", "python"})
-	if err != nil || opts.codeBackend != codemode.BackendPython {
-		t.Fatalf("-code-backend python = %q, %v", opts.codeBackend, err)
+	opts, err = parseCLIFlags([]string{"-prompt", "hi", "-code", "-code-backend", "cpython"})
+	if err != nil || opts.codeBackend != codemode.BackendCPython {
+		t.Fatalf("-code-backend cpython = %q, %v", opts.codeBackend, err)
 	}
-	if _, err := parseCLIFlags([]string{"-code-backend", "cpython"}); err == nil {
-		t.Error("-code-backend cpython succeeded, want an error")
+	if _, err := parseCLIFlags([]string{"-code-backend", "python"}); err == nil {
+		t.Error("-code-backend python succeeded, want an error")
 	}
 }

@@ -117,7 +117,7 @@ sparktea -model anthropic:claude-haiku-4-5-20251001 -code \
   model.
 - `-code` / `-search` enable Code Mode / native web search for that one run,
   same as `/code` and `/search` in the TUI.
-- `-code-backend python` runs Code Mode's Python in local CPython instead of
+- `-code-backend cpython` runs Code Mode's Python in local CPython instead of
   Monty (see "Local CPython backend" under Code Mode). CLI only; the TUI
   always uses Monty.
 - The model's answer streams to stdout; thinking, tool calls (including the
@@ -145,7 +145,7 @@ support (inheritance, generators, `match`, `enum`, `hashlib`, deep
 recursion; see Monty's
 [limitations docs](https://github.com/pydantic/monty/tree/main/docs/limitations)).
 For each case it reports pass/fail, `run_code` calls, failed calls by error
-type, and the answer. Flags: `-m provider:model_id`, `-b python` to run the
+type, and the answer. Flags: `-m provider:model_id`, `-b cpython` to run the
 same tasks on local CPython for comparison, `-j` parallel cases (default 4),
 `-o` log directory, `-l` to list cases; positional arguments filter cases by
 name substring.
@@ -266,7 +266,7 @@ Code Mode also attaches gomonty's `monty.run` execution span beneath the
 agent's `run_code` tool span, including interpreter timing and, by default,
 the bounded result and captured `print()` output.
 
-With `-code-backend python`, the `run_code` span has a `python.run` child
+With `-code-backend cpython`, the `run_code` span has a `python.run` child
 instead. Its attributes:
 
 - `python.exit_code` and `python.timed_out`;
@@ -284,6 +284,11 @@ The `sparktea turn` span for `-prompt` and `-script` runs carries
 - `sparktea.provider` and `sparktea.model`;
 - `sparktea.web_search` and `sparktea.code_mode`;
 - `sparktea.code_backend`, when code mode is on.
+
+The turn span is also tagged (`logfire.tags`) for filtering in the Logfire
+UI: `monty` or `cpython` when code mode is on, and `web_search` when search
+is on. Turns before October 12, 2026 have no tags, and some turns on that
+day recorded the CPython backend as `python`.
 
 To keep conversation content local and send only trace structure, token counts,
 and cost, set `LOGFIRE_SEND_CONTENT=0` alongside `LOGFIRE_TOKEN`:
@@ -358,7 +363,7 @@ code — without a broken-code loop running forever.
 
 ### Local CPython backend
 
-`-code-backend python` (with `-prompt` or `-script`) keeps the same
+`-code-backend cpython` (with `-prompt` or `-script`) keeps the same
 `run_code` tool but runs the script in local CPython through pydantic-ai-go's
 local workspace (`ai.NewLocalWorkspaceBackend`). It exists to measure what
 Monty's limits cost: the same tasks with the full language and standard

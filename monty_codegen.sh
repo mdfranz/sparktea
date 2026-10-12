@@ -11,7 +11,7 @@
 #
 # Usage: ./monty_codegen.sh [-m provider:model_id] [-b backend] [-j jobs] [-o outdir] [-l] [case ...]
 #   -m  model (default: first from -list-models, or $SPARKTEA_TEST_MODEL)
-#   -b  code backend: monty (default) or python (local CPython, not
+#   -b  code backend: monty (default) or cpython (local CPython, not
 #       sandboxed), to compare the same tasks without Monty's limits
 #   -j  cases to run in parallel (default 4)
 #   -o  directory for per-case stdout/stderr (default: a new temp dir)

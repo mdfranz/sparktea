@@ -24,20 +24,20 @@ type Backend string
 const (
 	// BackendMonty runs code in the Monty sandbox (the default).
 	BackendMonty Backend = "monty"
-	// BackendPython runs code in local CPython through a pydantic-ai-go
+	// BackendCPython runs code in local CPython through a pydantic-ai-go
 	// LocalWorkspace. It is not a sandbox: scripts run as the sparktea
 	// user, with network access and the host filesystem reachable. It
 	// exists to compare models' Code Mode behavior without Monty's limits.
-	BackendPython Backend = "python"
+	BackendCPython Backend = "cpython"
 )
 
 // ParseBackend validates a backend name from a flag or command.
 func ParseBackend(s string) (Backend, error) {
 	switch b := Backend(s); b {
-	case BackendMonty, BackendPython:
+	case BackendMonty, BackendCPython:
 		return b, nil
 	default:
-		return "", fmt.Errorf("unknown code backend %q (want %q or %q)", s, BackendMonty, BackendPython)
+		return "", fmt.Errorf("unknown code backend %q (want %q or %q)", s, BackendMonty, BackendCPython)
 	}
 }
 
@@ -46,7 +46,7 @@ func WithBackend(b Backend) Option {
 	return func(c *CodeMode) { c.backend = b }
 }
 
-// WithPython sets the Python interpreter for BackendPython (default
+// WithPython sets the Python interpreter for BackendCPython (default
 // "python3", looked up on PATH).
 func WithPython(path string) Option {
 	return func(c *CodeMode) { c.python = path }

@@ -169,8 +169,26 @@ func startRunTracer(ctx context.Context, name string) (*runTracer, context.Conte
 // annotate copies a turn's log key/value pairs (web_search, code_mode,
 // code_backend, ...) onto the turn span as sparktea.<key> attributes, so
 // Logfire queries can group turns by mode. Values other than bool, int and
-// string are skipped.
+// string are skipped. It also tags the span (logfire.tags) with the code
+// backend when code mode is on and with web_search when search is on, so
+// the Logfire UI can filter on them.
 func (t *runTracer) annotate(kv ...any) {
+	var tags []string
+	for i := 0; i+1 < len(kv); i += 2 {
+		switch kv[i] {
+		case "code_backend":
+			if v, ok := kv[i+1].(string); ok && v != "" {
+				tags = append(tags, v)
+			}
+		case "web_search":
+			if v, ok := kv[i+1].(bool); ok && v {
+				tags = append(tags, "web_search")
+			}
+		}
+	}
+	if len(tags) > 0 {
+		t.span.SetAttributes(attribute.StringSlice("logfire.tags", tags))
+	}
 	for i := 0; i+1 < len(kv); i += 2 {
 		key, ok := kv[i].(string)
 		if !ok {

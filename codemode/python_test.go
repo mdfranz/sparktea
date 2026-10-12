@@ -24,7 +24,7 @@ func runPythonRaw(t *testing.T, code string) (any, error) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return New(WithBackend(BackendPython)).handleRunPython(context.Background(), args)
+	return New(WithBackend(BackendCPython)).handleRunPython(context.Background(), args)
 }
 
 func runPython(t *testing.T, code string) any {
@@ -37,13 +37,13 @@ func runPython(t *testing.T, code string) any {
 }
 
 func TestParseBackend(t *testing.T) {
-	for _, s := range []string{"monty", "python"} {
+	for _, s := range []string{"monty", "cpython"} {
 		if b, err := ParseBackend(s); err != nil || string(b) != s {
 			t.Errorf("ParseBackend(%q) = %q, %v", s, b, err)
 		}
 	}
-	if _, err := ParseBackend("cpython"); err == nil {
-		t.Error("ParseBackend(\"cpython\") succeeded, want an error")
+	if _, err := ParseBackend("python"); err == nil {
+		t.Error("ParseBackend(\"python\") succeeded, want an error")
 	}
 }
 
@@ -158,7 +158,7 @@ func runPythonTraced(t *testing.T, code string, content bool) (sdktrace.ReadOnly
 	}
 	recorder := tracetest.NewSpanRecorder()
 	tp := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(recorder))
-	c := New(WithBackend(BackendPython), WithTelemetryContent(content))
+	c := New(WithBackend(BackendCPython), WithTelemetryContent(content))
 	c.tracer = tp.Tracer("sparktea-test")
 	ctx, parent := c.tracer.Start(context.Background(), "execute_tool run_code")
 	args, err := json.Marshal(map[string]string{"code": code})

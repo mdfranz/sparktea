@@ -36,7 +36,7 @@ func parseCLIFlags(args []string) (cliOptions, error) {
 	fs.StringVar(&opts.prompt, "prompt", "", "Run this prompt once, non-interactively, and exit (skips the TUI).")
 	fs.StringVar(&opts.model, "model", "", "Model ID to use with -prompt or -script, e.g. claude-haiku-4-5-20251001, or provider:model_id (e.g. anthropic:claude-haiku-4-5-20251001) to disambiguate (see -list-models). Defaults to the first available model.")
 	fs.BoolVar(&opts.code, "code", false, "Enable Code Mode's run_code tool for this run.")
-	backend := fs.String("code-backend", string(codemode.BackendMonty), "What runs Code Mode's Python with -prompt or -script: \"monty\" (sandbox) or \"python\" (local CPython, not sandboxed).")
+	backend := fs.String("code-backend", string(codemode.BackendMonty), "What runs Code Mode's Python with -prompt or -script: \"monty\" (sandbox) or \"cpython\" (local CPython, not sandboxed).")
 	fs.BoolVar(&opts.search, "search", false, "Enable native web search for this run, if the model supports it.")
 	fs.BoolVar(&opts.listModels, "list-models", false, "List available models as provider:model_id (API key present) and exit.")
 	fs.StringVar(&opts.script, "script", "", "Run a sequence of prompts and commands from this file, non-interactively, sharing one growing conversation across turns (skips the TUI; mutually exclusive with -prompt). See README's \"Scripting multi-turn sequences\" for the file format.")
