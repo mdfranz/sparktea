@@ -117,6 +117,9 @@ sparktea -model anthropic:claude-haiku-4-5-20251001 -code \
   model.
 - `-code` / `-search` enable Code Mode / native web search for that one run,
   same as `/code` and `/search` in the TUI.
+- `-code-backend python` runs Code Mode's Python in local CPython instead of
+  Monty (see "Local CPython backend" under Code Mode). CLI only; the TUI
+  always uses Monty.
 - The model's answer streams to stdout; thinking, tool calls (including the
   exact `run_code` argument and result), and a final usage line go to
   stderr — redirect it away (`2>/dev/null`) for just the answer, or capture
@@ -142,9 +145,10 @@ support (inheritance, generators, `match`, `enum`, `hashlib`, deep
 recursion; see Monty's
 [limitations docs](https://github.com/pydantic/monty/tree/main/docs/limitations)).
 For each case it reports pass/fail, `run_code` calls, failed calls by error
-type, and the answer. Flags: `-m provider:model_id`, `-j` parallel cases
-(default 4), `-o` log directory, `-l` to list cases; positional arguments
-filter cases by name substring.
+type, and the answer. Flags: `-m provider:model_id`, `-b python` to run the
+same tasks on local CPython for comparison, `-j` parallel cases (default 4),
+`-o` log directory, `-l` to list cases; positional arguments filter cases by
+name substring.
 
 ### Claude 5.5 Monty benchmark
 
@@ -330,6 +334,32 @@ resource-limit violation comes back to the model as a bounded retry prompt
 (`*ai.RetryError`, capped at 20 cumulative failures for the run) rather than
 a hard failure, so it can see what went wrong and retry with corrected
 code — without a broken-code loop running forever.
+
+### Local CPython backend
+
+`-code-backend python` (with `-prompt` or `-script`) keeps the same
+`run_code` tool but runs the script in local CPython through pydantic-ai-go's
+local workspace (`ai.NewLocalWorkspaceBackend`). It exists to measure what
+Monty's limits cost: the same tasks with the full language and standard
+library. See `codemode/python.go`.
+
+- **Not a sandbox.** Scripts run as your user, with network access, and can
+  reach the host filesystem. Only use it for benchmarking with prompts you
+  trust.
+- **What is limited:**
+  - each call gets a fresh process and a fresh scratch directory, set as
+    `HOME` and removed afterwards;
+  - only `PATH` and locale variables are passed through, so API keys and
+    `LOGFIRE_TOKEN` don't reach the script;
+  - the 5-second timeout matches Monty's;
+  - address space is capped at 512 MiB, since CPython needs more headroom
+    than Monty's 64 MiB heap;
+  - CPython's own recursion limit (1000) applies.
+- **Same behavior as Monty:** the last expression's value and `print()`
+  output come back in the same shape as with Monty, and errors come back as
+  retry prompts with the exception line first.
+- **Different prompt:** the tool description describes CPython and leaves
+  out Monty's list of limits, and the Monty system instruction isn't added.
 
 **Current limitation**: the sandbox is self-contained — the model can't yet
 call sparktea's own tools (e.g. web search) as functions from inside a

@@ -48,6 +48,8 @@ func defaultLimits() *monty.ResourceLimits {
 // CodeMode is an ai.Capability adding a run_code tool that executes Python
 // in a Monty sandbox.
 type CodeMode struct {
+	backend          Backend
+	python           string
 	limits           *monty.ResourceLimits
 	telemetry        monty.TelemetryHandler
 	telemetryOptions monty.TelemetryOptions
@@ -89,6 +91,8 @@ func (h montyTelemetry) RecordPrint(ctx context.Context, text string) {
 // New builds a CodeMode capability with default (or overridden) limits.
 func New(opts ...Option) *CodeMode {
 	c := &CodeMode{
+		backend:   BackendMonty,
+		python:    "python3",
 		limits:    defaultLimits(),
 		telemetry: montyTelemetry{recordContent: true},
 		telemetryOptions: monty.TelemetryOptions{
@@ -111,9 +115,17 @@ const instructions = "The Python environment uses a restricted \"monty\" interpr
 	"simple, plain Python code using basic loops, conditionals, and manually " +
 	"implemented helpers."
 
-// Setup implements ai.Capability. It adds a tool and a short instruction — it
-// never hides or replaces anything another capability contributed.
+// Backend reports which backend executes run_code.
+func (c *CodeMode) Backend() Backend { return c.backend }
+
+// Setup implements ai.Capability. It adds a tool and, for Monty, a short
+// instruction — it never hides or replaces anything another capability
+// contributed.
 func (c *CodeMode) Setup(reg *ai.CapabilityRegistry) error {
+	if c.backend == BackendPython {
+		reg.AddTool(runCodePythonDefinition(), c.handleRunPython)
+		return nil
+	}
 	reg.AddTool(runCodeDefinition(), c.handleRunCode)
 	reg.AddInstructions(instructions)
 	return nil

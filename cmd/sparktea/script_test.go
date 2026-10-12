@@ -3,6 +3,8 @@ package main
 import (
 	"strings"
 	"testing"
+
+	"github.com/mdfranz/sparktea/codemode"
 )
 
 func TestParseScript(t *testing.T) {
@@ -63,5 +65,19 @@ func TestParseScriptErrors(t *testing.T) {
 func TestPromptAndScriptMutuallyExclusive(t *testing.T) {
 	if _, err := parseCLIFlags([]string{"-prompt", "hi", "-script", "steps.txt"}); err == nil {
 		t.Error("-prompt and -script together succeeded, want an error")
+	}
+}
+
+func TestCodeBackendFlag(t *testing.T) {
+	opts, err := parseCLIFlags([]string{"-prompt", "hi"})
+	if err != nil || opts.codeBackend != codemode.BackendMonty {
+		t.Fatalf("default backend = %q, %v; want monty", opts.codeBackend, err)
+	}
+	opts, err = parseCLIFlags([]string{"-prompt", "hi", "-code", "-code-backend", "python"})
+	if err != nil || opts.codeBackend != codemode.BackendPython {
+		t.Fatalf("-code-backend python = %q, %v", opts.codeBackend, err)
+	}
+	if _, err := parseCLIFlags([]string{"-code-backend", "cpython"}); err == nil {
+		t.Error("-code-backend cpython succeeded, want an error")
 	}
 }

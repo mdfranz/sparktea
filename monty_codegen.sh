@@ -9,8 +9,10 @@
 # interesting columns are how many run_code calls failed and with what
 # error before the model found a Monty-compatible version.
 #
-# Usage: ./monty_codegen.sh [-m provider:model_id] [-j jobs] [-o outdir] [-l] [case ...]
+# Usage: ./monty_codegen.sh [-m provider:model_id] [-b backend] [-j jobs] [-o outdir] [-l] [case ...]
 #   -m  model (default: first from -list-models, or $SPARKTEA_TEST_MODEL)
+#   -b  code backend: monty (default) or python (local CPython, not
+#       sandboxed), to compare the same tasks without Monty's limits
 #   -j  cases to run in parallel (default 4)
 #   -o  directory for per-case stdout/stderr (default: a new temp dir)
 #   -l  list cases and exit
@@ -56,16 +58,18 @@ EOF
 )
 
 model="${SPARKTEA_TEST_MODEL:-}"
+backend=monty
 jobs=4
 outdir=""
 list_only=0
-while getopts "m:j:o:lh" opt; do
+while getopts "m:b:j:o:lh" opt; do
 	case "$opt" in
 	m) model="$OPTARG" ;;
+	b) backend="$OPTARG" ;;
 	j) jobs="$OPTARG" ;;
 	o) outdir="$OPTARG" ;;
 	l) list_only=1 ;;
-	*) sed -n '2,23p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;;
+	*) sed -n '2,25p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;;
 	esac
 done
 shift $((OPTIND - 1))
@@ -109,7 +113,7 @@ run_case() {
 	local name="$1" expected="$2" prompt="$3"
 	local out="$outdir/$name.stdout" err="$outdir/$name.stderr"
 	local start=$SECONDS code status calls errors types answer
-	"$BINARY" -model "$model" -code -prompt "$prompt$SUFFIX" >"$out" 2>"$err"
+	"$BINARY" -model "$model" -code -code-backend "$backend" -prompt "$prompt$SUFFIX" >"$out" 2>"$err"
 	code=$?
 	calls=$(grep -c '^\[tool call\] run_code' "$err")
 	errors=$(grep -c '^\[tool error\] run_code' "$err")
@@ -135,8 +139,9 @@ run_case() {
 		"$((SECONDS - start))" "${types:--}" "${answer:--}" >"$outdir/$name.result"
 }
 
-echo "model: $model"
-echo "logs:  $outdir"
+echo "model:   $model"
+echo "backend: $backend"
+echo "logs:    $outdir"
 echo
 names=()
 while IFS=$'\t' read -r name expected prompt; do
