@@ -45,7 +45,7 @@ with open(SCRIPT, encoding="utf-8") as f:
     source = f.read()
 try:
     tree = ast.parse(source, SCRIPT)
-except SyntaxError as e:
+except (SyntaxError, ValueError) as e:  # ValueError: source contains null bytes
     fail(e, "")
 
 last = None

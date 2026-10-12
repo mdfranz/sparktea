@@ -113,6 +113,7 @@ func TestRunPythonErrorsAreRetries(t *testing.T) {
 		{"import numpy_does_not_exist", "ModuleNotFoundError:"},
 		{"import time\ntime.sleep(10)", "TimeoutError:"},
 		{"x = bytearray(1 << 30)", "MemoryError"},
+		{"x = 1\x00", "ValueError: source code string cannot contain null bytes"},
 	}
 	for _, tc := range cases {
 		result, err := runPythonRaw(t, tc.code)
@@ -130,6 +131,10 @@ func TestRunPythonErrorsAreRetries(t *testing.T) {
 	}
 	if strings.Contains(msg, "<string>") {
 		t.Errorf("message leaks runner frames: %q", msg)
+	}
+	result, err = runPythonRaw(t, "x = 1\x00")
+	if msg := checkRetry(t, result, err); strings.Contains(msg, "<string>") || strings.Contains(msg, "ast.py") {
+		t.Errorf("null-byte error leaks runner frames: %q", msg)
 	}
 }
 
