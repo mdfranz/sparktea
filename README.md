@@ -204,6 +204,21 @@ On October 10, under `RunStream`, the three non-Qwen models scored 9 to 15.
 See [results/openrouter-monty-codegen.md](results/openrouter-monty-codegen.md)
 for the side-by-side table, per-case results, error types, and cost.
 
+### Monty vs. CPython backends
+
+![Monty vs. CPython Code Mode backends](results/monty-vs-cpython.png)
+
+On October 12, 2026, six models ran the same tasks on both Code Mode
+backends.
+
+- **Accuracy:** no change.
+- **Cost:** 51–76% lower on CPython.
+- **Retries:** the open models went from 7–9 failed calls to 1–2.
+
+The saving comes from fewer retries and from a smaller prompt: Monty's tool
+description and instruction add about 2,000 characters to every request. See
+[results/monty-vs-cpython.md](results/monty-vs-cpython.md).
+
 [results/README.md](results/README.md) indexes all benchmark reports and graphics.
 
 ### Scripting multi-turn sequences
@@ -327,6 +342,10 @@ Without `LOGFIRE_TOKEN` set, none of this runs — no OTel providers are
 installed and agents behave exactly as before.
 
 ## Code Mode
+
+For how both Code Mode backends are built on pydantic-ai-go (the
+capability, retry handling, events, the local workspace and telemetry), see
+[CODE-MODE.md](CODE-MODE.md).
 
 `/code` (default off) gives the model a single `run_code` tool: it writes
 Python, sparktea runs it, the model gets the result back. This is

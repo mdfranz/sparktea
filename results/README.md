@@ -10,6 +10,7 @@ once per configuration.
 | File | Contents |
 |---|---|
 | [claude-5-5-monty-analysis.md](claude-5-5-monty-analysis.md) | Claude Haiku, Sonnet and Opus 5.5 (October 10, 2026): scores, cost, and a case-by-case review of the generated Python |
+| [monty-vs-cpython.md](monty-vs-cpython.md) | Six models on the Monty and CPython Code Mode backends (October 12, 2026): cost, retries, error types and interpreter speed |
 | [openrouter-monty-codegen.md](openrouter-monty-codegen.md) | Qwen 3.8 Flash, DeepSeek V4 Flash, GLM 5.3 Flash and DeepSeek V4 Pro 0813: the October 12 retest compared with Claude 5.5, and the October 10 runs before and after the `StartRun` fix |
 
 ## Infographics
@@ -20,8 +21,13 @@ once per configuration.
 | [monty-python-code-review.png](monty-python-code-review.png) | Claude 5.5: first-call completions, code size and coding style |
 | [openrouter-monty-model-comparison.png](openrouter-monty-model-comparison.png) | OpenRouter models: score, cost, time and tool calls |
 | [openrouter-monty-code-review.png](openrouter-monty-code-review.png) | OpenRouter models: first-call completions, code size and coding style |
+| [monty-vs-cpython.png](monty-vs-cpython.png) | Monty vs. CPython per model: cost, failed calls, first-call completions and case time |
 
 ## Summary
+
+The tables below are the Monty backend. On the CPython backend, the same
+tasks cost 51–76% less with the same accuracy; see
+[monty-vs-cpython.md](monty-vs-cpython.md).
 
 All seven models completed 23/23 on the current code. Haiku's one scoring
 miss was a formatting error in its final answer.
