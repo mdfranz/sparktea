@@ -266,6 +266,25 @@ Code Mode also attaches gomonty's `monty.run` execution span beneath the
 agent's `run_code` tool span, including interpreter timing and, by default,
 the bounded result and captured `print()` output.
 
+With `-code-backend python`, the `run_code` span has a `python.run` child
+instead. Its attributes:
+
+- `python.exit_code` and `python.timed_out`;
+- `python.exec_ms`: the script's own run time. The span's duration minus
+  this is roughly the process startup cost.
+- `python.code_bytes`;
+- with content on, `python.stderr` and `python.output`, each truncated to
+  4 KiB.
+
+A failed script sets the span status to its exception line.
+
+The `sparktea turn` span for `-prompt` and `-script` runs carries
+`sparktea.*` attributes, so turns can be grouped by mode in queries:
+
+- `sparktea.provider` and `sparktea.model`;
+- `sparktea.web_search` and `sparktea.code_mode`;
+- `sparktea.code_backend`, when code mode is on.
+
 To keep conversation content local and send only trace structure, token counts,
 and cost, set `LOGFIRE_SEND_CONTENT=0` alongside `LOGFIRE_TOKEN`:
 
@@ -278,7 +297,9 @@ go run ./cmd/sparktea
 Content capture is configured at startup, not per turn. Only use the default
 after confirming that the destination Logfire project is appropriate for the
 conversation content. The opt-out also removes Monty results and `print()`
-events while retaining its execution span and timing attributes.
+events while retaining its execution span and timing attributes. For the
+CPython backend it drops `python.stderr` and `python.output`, and the span
+status keeps only the exception type.
 
 Without `LOGFIRE_TOKEN` set, none of this runs — no OTel providers are
 installed and agents behave exactly as before.

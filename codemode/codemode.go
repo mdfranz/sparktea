@@ -14,6 +14,8 @@ import (
 	"github.com/Kludex/pydantic-ai-go/ai"
 	monty "github.com/mdfranz/gomonty"
 	"github.com/mdfranz/gomonty/otelmonty"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/trace"
 )
 
 // ToolName is run_code's model-facing tool name, exported so callers (e.g.
@@ -50,6 +52,7 @@ func defaultLimits() *monty.ResourceLimits {
 type CodeMode struct {
 	backend          Backend
 	python           string
+	tracer           trace.Tracer // python.run spans (BackendPython)
 	limits           *monty.ResourceLimits
 	telemetry        monty.TelemetryHandler
 	telemetryOptions monty.TelemetryOptions
@@ -93,6 +96,7 @@ func New(opts ...Option) *CodeMode {
 	c := &CodeMode{
 		backend:   BackendMonty,
 		python:    "python3",
+		tracer:    otel.Tracer("sparktea/codemode"),
 		limits:    defaultLimits(),
 		telemetry: montyTelemetry{recordContent: true},
 		telemetryOptions: monty.TelemetryOptions{

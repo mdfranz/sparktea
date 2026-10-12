@@ -8,6 +8,11 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 )
 
 func runPythonRaw(t *testing.T, code string) (any, error) {
@@ -143,5 +148,91 @@ func TestRunPythonScratchDirectoryIsRemoved(t *testing.T) {
 	}
 	if _, err := os.Stat(dir); !os.IsNotExist(err) {
 		t.Fatalf("scratch dir %s still exists (err %v)", dir, err)
+	}
+}
+
+func runPythonTraced(t *testing.T, code string, content bool) (sdktrace.ReadOnlySpan, error) {
+	t.Helper()
+	if _, err := exec.LookPath("python3"); err != nil {
+		t.Skip("python3 not on PATH")
+	}
+	recorder := tracetest.NewSpanRecorder()
+	tp := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(recorder))
+	c := New(WithBackend(BackendPython), WithTelemetryContent(content))
+	c.tracer = tp.Tracer("sparktea-test")
+	ctx, parent := c.tracer.Start(context.Background(), "execute_tool run_code")
+	args, err := json.Marshal(map[string]string{"code": code})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, runErr := c.handleRunPython(ctx, args)
+	parent.End()
+	span := recordedSpan(recorder.Ended(), "python.run")
+	if span == nil {
+		t.Fatal("no python.run span recorded")
+	}
+	if span.Parent().SpanID() != parent.SpanContext().SpanID() {
+		t.Error("python.run is not a child of the tool span")
+	}
+	return span, runErr
+}
+
+func spanAttrs(span sdktrace.ReadOnlySpan) map[string]attribute.Value {
+	out := map[string]attribute.Value{}
+	for _, kv := range span.Attributes() {
+		out[string(kv.Key)] = kv.Value
+	}
+	return out
+}
+
+func TestRunPythonSpanSuccess(t *testing.T) {
+	span, err := runPythonTraced(t, "print('hi')\n42", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := spanAttrs(span)
+	if a["python.exit_code"].AsInt64() != 0 || a["python.timed_out"].AsBool() {
+		t.Errorf("exit_code/timed_out = %v/%v", a["python.exit_code"], a["python.timed_out"])
+	}
+	if a["python.output"].AsString() != "hi\n" {
+		t.Errorf("python.output = %q", a["python.output"].AsString())
+	}
+	if _, ok := a["python.exec_ms"]; !ok {
+		t.Error("python.exec_ms missing")
+	}
+	if span.Status().Code != codes.Unset {
+		t.Errorf("status = %v, want unset", span.Status())
+	}
+}
+
+func TestRunPythonSpanErrors(t *testing.T) {
+	span, err := runPythonTraced(t, "raise ValueError('bad')", true)
+	checkRetry(t, nil, err)
+	a := spanAttrs(span)
+	if span.Status().Code != codes.Error || span.Status().Description != "ValueError: bad" {
+		t.Errorf("status = %v", span.Status())
+	}
+	if a["python.exit_code"].AsInt64() != 1 || !strings.Contains(a["python.stderr"].AsString(), "ValueError: bad") {
+		t.Errorf("exit_code/stderr = %v/%q", a["python.exit_code"], a["python.stderr"].AsString())
+	}
+
+	span, err = runPythonTraced(t, "import time\ntime.sleep(10)", true)
+	checkRetry(t, nil, err)
+	if a := spanAttrs(span); !a["python.timed_out"].AsBool() || span.Status().Code != codes.Error {
+		t.Errorf("timeout not recorded: timed_out=%v status=%v", a["python.timed_out"], span.Status())
+	}
+}
+
+func TestRunPythonSpanContentOptOut(t *testing.T) {
+	span, _ := runPythonTraced(t, "print('secret')\n42", false)
+	if spanHasAttribute(span, "python.output") {
+		t.Error("python.output recorded despite content opt-out")
+	}
+	span, _ = runPythonTraced(t, "raise ValueError('secret')", false)
+	if spanHasAttribute(span, "python.stderr") {
+		t.Error("python.stderr recorded despite content opt-out")
+	}
+	if d := span.Status().Description; d != "ValueError" {
+		t.Errorf("status description = %q, want only the exception type", d)
 	}
 }

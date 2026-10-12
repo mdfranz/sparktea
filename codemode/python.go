@@ -13,6 +13,9 @@ import (
 	"time"
 
 	"github.com/Kludex/pydantic-ai-go/ai"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 )
 
 // Backend selects what executes run_code's Python.
@@ -107,14 +110,29 @@ func (c *CodeMode) handleRunPython(ctx context.Context, rawArgs json.RawMessage)
 	if err != nil {
 		return nil, fmt.Errorf("codemode: workspace: %w", err)
 	}
+	ctx, span := c.tracer.Start(ctx, "python.run", trace.WithAttributes(
+		attribute.String("python.script_name", pythonScript),
+		attribute.String("python.interpreter", c.python),
+		attribute.Int("python.code_bytes", len(args.Code)),
+	))
+	defer span.End()
+
 	result, err := backend.Run(ctx, ai.WorkspaceCommand{
 		Args:    []string{c.python, "-I", "-c", pythonRunner},
 		Timeout: pythonTimeout,
 	})
+	timedOut := errors.Is(err, ai.ErrWorkspaceTimeout)
+	span.SetAttributes(attribute.Bool("python.timed_out", timedOut))
+	if err == nil {
+		span.SetAttributes(attribute.Int("python.exit_code", result.ExitCode))
+	}
 	switch {
-	case errors.Is(err, ai.ErrWorkspaceTimeout):
-		return nil, ai.Retryf("TimeoutError: script exceeded %s", pythonTimeout)
+	case timedOut:
+		msg := fmt.Sprintf("TimeoutError: script exceeded %s", pythonTimeout)
+		span.SetStatus(codes.Error, msg)
+		return nil, ai.Retryf("%s", msg)
 	case err != nil:
+		span.SetStatus(codes.Error, err.Error())
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
@@ -124,15 +142,46 @@ func (c *CodeMode) handleRunPython(ctx context.Context, rawArgs json.RawMessage)
 		if result.ExitCode != 1 || msg == "" {
 			msg = strings.TrimSpace(fmt.Sprintf("RuntimeError: python exited with status %d\n%s", result.ExitCode, msg))
 		}
+		// The exception line comes first, so it doubles as the span status;
+		// without content, keep only the exception type.
+		status, _, _ := strings.Cut(msg, "\n")
+		if !c.telemetryOptions.RecordOutputs {
+			status, _, _ = strings.Cut(status, ":")
+		}
+		span.SetStatus(codes.Error, truncate(status, 200))
+		if c.telemetryOptions.RecordOutputs {
+			span.SetAttributes(attribute.String("python.stderr", truncate(result.Stderr, pythonSpanTextLimit)))
+		}
 		return nil, ai.Retryf("%s", msg)
 	}
-	return parsePythonResult(result.Stdout)
+	value, output, execMS, err := parsePythonResult(result.Stdout)
+	if err != nil {
+		span.SetStatus(codes.Error, err.Error())
+		return nil, err
+	}
+	span.SetAttributes(attribute.Float64("python.exec_ms", execMS))
+	if c.telemetryOptions.RecordOutputs && output != "" {
+		span.SetAttributes(attribute.String("python.output", truncate(output, pythonSpanTextLimit)))
+	}
+	return value, nil
+}
+
+// pythonSpanTextLimit bounds stderr and print output copied onto the
+// python.run span.
+const pythonSpanTextLimit = 4096
+
+func truncate(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n] + "…"
 }
 
 // parsePythonResult decodes the runner's JSON line into run_code's result
-// shape (see composeResult). Numbers stay json.Number so big integers keep
-// every digit.
-func parsePythonResult(stdout string) (any, error) {
+// shape (see composeResult), and also returns the print output and the
+// script's own execution time for telemetry. Numbers stay json.Number so big
+// integers keep every digit.
+func parsePythonResult(stdout string) (result any, output string, execMS float64, err error) {
 	stdout = strings.TrimRight(stdout, "\n")
 	line := stdout[strings.LastIndexByte(stdout, '\n')+1:]
 	dec := json.NewDecoder(strings.NewReader(line))
@@ -140,26 +189,28 @@ func parsePythonResult(stdout string) (any, error) {
 	var payload struct {
 		Output string          `json:"output"`
 		Value  json.RawMessage `json:"value"`
+		ExecMS float64         `json:"exec_ms"`
 	}
 	if err := dec.Decode(&payload); err != nil {
-		return nil, ai.Retryf("RuntimeError: unreadable result from python: %.200q", stdout)
+		return nil, "", 0, ai.Retryf("RuntimeError: unreadable result from python: %.200q", stdout)
 	}
 	var value any
 	if len(payload.Value) > 0 {
 		vdec := json.NewDecoder(bytes.NewReader(payload.Value))
 		vdec.UseNumber()
 		if err := vdec.Decode(&value); err != nil {
-			return nil, fmt.Errorf("codemode: decode python value: %w", err)
+			return nil, "", 0, fmt.Errorf("codemode: decode python value: %w", err)
 		}
 	}
 	switch {
 	case payload.Output != "" && value != nil:
-		return map[string]any{"output": payload.Output, "result": value}, nil
+		result = map[string]any{"output": payload.Output, "result": value}
 	case payload.Output != "":
-		return map[string]any{"output": payload.Output}, nil
+		result = map[string]any{"output": payload.Output}
 	case value != nil:
-		return value, nil
+		result = value
 	default:
-		return map[string]any{}, nil
+		result = map[string]any{}
 	}
+	return result, payload.Output, payload.ExecMS, nil
 }

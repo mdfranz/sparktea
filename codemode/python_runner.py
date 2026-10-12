@@ -5,6 +5,7 @@ import json
 import os
 import resource
 import sys
+import time
 import traceback
 
 SCRIPT = "run_code.py"
@@ -53,11 +54,13 @@ if tree.body and isinstance(tree.body[-1], ast.Expr):
 
 scope = {"__name__": "__main__"}
 out = io.StringIO()
+start = time.perf_counter()
 try:
     with contextlib.redirect_stdout(out):
         exec(compile(tree, SCRIPT, "exec"), scope)
         value = eval(compile(last, SCRIPT, "eval"), scope) if last else None
 except BaseException as e:
     fail(e, out.getvalue())
+exec_ms = (time.perf_counter() - start) * 1000
 
-sys.stdout.write("\n" + json.dumps({"output": out.getvalue(), "value": plain(value)}) + "\n")
+sys.stdout.write("\n" + json.dumps({"output": out.getvalue(), "value": plain(value), "exec_ms": exec_ms}) + "\n")

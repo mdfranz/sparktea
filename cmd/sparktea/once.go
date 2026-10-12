@@ -141,8 +141,11 @@ func runOnce(ctx context.Context, option modelOption, opts cliOptions) error {
 		runOpts = append(runOpts, ai.WithRunNativeTools(ai.WebSearchTool{Optional: true}))
 	}
 
-	_, err := runTurn(ctx, agent, option, opts.prompt, nil, runOpts, "one_shot",
-		"web_search", searchEnabled, "code_mode", opts.code, "code_backend", string(opts.codeBackend))
+	logArgs := []any{"web_search", searchEnabled, "code_mode", opts.code}
+	if opts.code {
+		logArgs = append(logArgs, "code_backend", string(opts.codeBackend))
+	}
+	_, err := runTurn(ctx, agent, option, opts.prompt, nil, runOpts, "one_shot", logArgs...)
 	return err
 }
 
@@ -163,6 +166,7 @@ func runTurn(
 	startArgs := append([]any{"mode", mode, "provider", string(option.provider), "model", option.modelID}, extraLogArgs...)
 	logLocal(slog.LevelInfo, "turn_started", startArgs...)
 	runTracer, runCtx := startRunTracer(ctx, "sparktea turn")
+	runTracer.annotate(startArgs...)
 
 	toolErrors := 0
 	// StartRun, not RunStream: RunStream stops at the first output, so text a
