@@ -135,7 +135,7 @@ provider deprecated), as opposed to a bug in sparktea's own request
 building. Off by default since it's one call per catalog entry rather than
 one per provider, so it's the slowest and priciest check here.
 
-`./monty_codegen.sh` measures how well a model's generated Python runs on
+[`./monty_codegen.sh`](monty_codegen.sh) measures how well a model's generated Python runs on
 Monty. It sends 23 small tasks with known answers through `-code -prompt`.
 Most tasks are worded to tempt the model toward something Monty doesn't
 support (inheritance, generators, `match`, `enum`, `hashlib`, deep

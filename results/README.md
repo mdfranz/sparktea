@@ -1,6 +1,6 @@
 # Results
 
-Results from `monty_codegen.sh` (see "Scripting (non-interactive mode)" in the main [README](../README.md#scripting-non-interactive-mode)).
+Results from [`monty_codegen.sh`](../monty_codegen.sh) (see "Scripting (non-interactive mode)" in the main [README](../README.md#scripting-non-interactive-mode)).
 The script runs 23 Code Mode tasks, each written to tempt the model into
 Python that Monty doesn't support, and checks the answer. Each model ran
 once per configuration.
