@@ -165,11 +165,19 @@ limitations.
 
 ### OpenRouter Monty runs
 
-On October 10, 2026, Qwen 3.8 Flash, DeepSeek V4 Flash, DeepSeek V4 Pro (0813)
-and GLM 5.3 Flash all completed 23 of 23 cases once agent turns used
-`StartRun`. Under `RunStream`, the three non-Qwen models scored 9 to 15. See
-[results/openrouter-monty-codegen.md](results/openrouter-monty-codegen.md)
-for per-case results, error types, and cost.
+In an October 12, 2026 retest on the same code as the Claude 5.5 run, Qwen
+3.8 Flash, DeepSeek V4 Flash, GLM 5.3 Flash and DeepSeek V4 Pro (0813) all
+completed 23 of 23 cases.
+
+- **Cost:** the three Flash models cost $0.012–0.015 per run, close to
+  Haiku 5.5. DeepSeek V4 Pro cost $0.119.
+- **Retries:** they needed more `run_code` retries than the Claude models
+  (10–25 extra calls, against 2–7).
+- **Time:** they were 3–5 times slower per case.
+
+On October 10, under `RunStream`, the three non-Qwen models scored 9 to 15.
+See [results/openrouter-monty-codegen.md](results/openrouter-monty-codegen.md)
+for the side-by-side table, per-case results, error types, and cost.
 
 ### Scripting multi-turn sequences
 
