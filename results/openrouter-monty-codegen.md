@@ -11,6 +11,18 @@ This report has two parts:
 
 ## October 12 retest: OpenRouter vs. Claude 5.5
 
+![Cost and outcome comparison](openrouter-monty-model-comparison.png)
+
+![Generated-code comparison](openrouter-monty-code-review.png)
+
+The generated-code graphic is based on the final `run_code` submissions:
+
+- comments, `print` calls and `try` blocks were counted per model;
+- each first attempt was checked for features Monty rejects;
+- individual retry sequences were read by hand.
+
+Its bars use a fixed scale: 12,000 chars and 400 lines.
+
 The OpenRouter models ran with the same sparktea code as the Claude 5.5 run
 of October 10 (after `7b1ab27`, with `StartRun` and the Monty instruction).
 The only later changes are docs. Each model ran once, with `-j 4`. The four

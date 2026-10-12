@@ -165,6 +165,10 @@ limitations.
 
 ### OpenRouter Monty runs
 
+![OpenRouter Monty Python generation benchmark](results/openrouter-monty-model-comparison.png)
+
+![OpenRouter generated Python code review](results/openrouter-monty-code-review.png)
+
 In an October 12, 2026 retest on the same code as the Claude 5.5 run, Qwen
 3.8 Flash, DeepSeek V4 Flash, GLM 5.3 Flash and DeepSeek V4 Pro (0813) all
 completed 23 of 23 cases.
