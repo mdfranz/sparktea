@@ -163,6 +163,14 @@ See the [detailed generated-code analysis](results/claude-5-5-monty-analysis.md)
 for methodology, case-by-case behavior, code excerpts, and benchmark
 limitations.
 
+### OpenRouter Monty runs
+
+On October 10, 2026, Qwen 3.8 Flash, DeepSeek V4 Flash, DeepSeek V4 Pro (0813)
+and GLM 5.3 Flash all completed 23 of 23 cases once agent turns used
+`StartRun`. Under `RunStream`, the three non-Qwen models scored 9 to 15. See
+[results/openrouter-monty-codegen.md](results/openrouter-monty-codegen.md)
+for per-case results, error types, and cost.
+
 ### Scripting multi-turn sequences
 
 `-prompt` only covers one turn. Pass `-script <file>` instead to run a
