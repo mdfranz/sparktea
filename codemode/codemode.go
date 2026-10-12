@@ -6,6 +6,7 @@ package codemode
 
 import (
 	"context"
+	_ "embed"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -110,14 +111,17 @@ func New(opts ...Option) *CodeMode {
 	return c
 }
 
-// instructions steers the model away from Python the Monty sandbox rejects,
-// which otherwise costs a retry per mistake. It rides along with the tool so
-// it only applies to runs where code mode is on.
-const instructions = "The Python environment uses a restricted \"monty\" interpreter: do not use " +
-	"decorators (like @property), pattern matching (match-case), custom Exception " +
-	"subclassing, or standard modules like statistics and hashlib. Instead, write " +
-	"simple, plain Python code using basic loops, conditionals, and manually " +
-	"implemented helpers."
+// Keep the model-facing strings in files so the Go and Python runners share
+// exactly the same text.
+//
+//go:embed run_code_description.txt
+var montyDescription string
+
+//go:embed run_code_python_description.txt
+var pythonDescription string
+
+//go:embed monty_instructions.txt
+var instructions string
 
 // Backend reports which backend executes run_code.
 func (c *CodeMode) Backend() Backend { return c.backend }
@@ -137,39 +141,8 @@ func (c *CodeMode) Setup(reg *ai.CapabilityRegistry) error {
 
 func runCodeDefinition() ai.ToolDefinition {
 	def := ai.ToolDefinition{
-		Name: ToolName,
-		Description: "Run Python in a sandboxed interpreter (Monty, not CPython) and get " +
-			"back the result. The last expression's value returns automatically — no " +
-			"need to print() it.\n\n" +
-			"No filesystem, network, or environment access. os and pathlib import fine, " +
-			"but any real OS call (os.getenv, Path.exists, file I/O, ...) raises " +
-			"NotImplementedError — there's nothing to touch.\n\n" +
-			"Only part of the stdlib exists, each module covering a slice of CPython's " +
-			"surface: sys, typing, math, json, re, unicodedata, datetime, pathlib, os, " +
-			"collections, itertools, functools, dataclasses, asyncio, base64, binascii, " +
-			"copy, random, and time. No third-party imports. Notably NOT available: " +
-			"statistics, enum, struct, hashlib, contextlib, operator, string, io, and " +
-			"anything network/process/thread-related (urllib, socket, subprocess, " +
-			"threading) — compute statistics and pick values with plain arithmetic/math " +
-			"instead of importing statistics. Also missing: heapq, bisect, textwrap, " +
-			"decimal, fractions, abc, uuid, csv, zoneinfo. Missing builtins: dir, " +
-			"globals, vars, compile, callable, complex, input. Missing names in present modules: " +
-			"functools.lru_cache/cache/cmp_to_key (memoize with a dict), " +
-			"dataclasses.field/fields/asdict/replace, dataclass(order=True), re.VERBOSE, " +
-			"sys.setrecursionlimit, asyncio.create_task (use gather), int.to_bytes, " +
-			"str.format_map, date.toordinal, instance __dict__. User classes can't be " +
-			"ordered with __lt__ (sort with key=). Built-in exceptions take zero or " +
-			"one string argument (ValueError('msg'), not ValueError(obj) or " +
-			"ValueError('a', 'b')) and custom exception types can't be defined. Only UTF-8, UTF-16, UTF-32 and ASCII codecs exist (no latin-1).\n\n" +
-			"Also unsupported: class inheritance (so no custom exception classes — raise " +
-			"a built-in like ValueError), method decorators (@property, @staticmethod, " +
-			"@classmethod), super(), bytearray, function attributes like __name__, " +
-			"generator functions/yield, match, del, async with/for, and PEP 695 type " +
-			"aliases. Recursion depth is capped at 100 — use loops for anything " +
-			"deeper.\n\n" +
-			"A bad script's error comes back as a message, not a hard failure — read it, " +
-			"fix the code, and call run_code again. Good for calculations, loops, or data " +
-			"wrangling that's easier to write than to reason through step by step.",
+		Name:        ToolName,
+		Description: montyDescription,
 		Schema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{

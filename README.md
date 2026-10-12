@@ -165,7 +165,40 @@ For each case it reports pass/fail, `run_code` calls, failed calls by error
 type, and the answer. Flags: `-m provider:model_id`, `-b cpython` to run the
 same tasks on local CPython for comparison, `-j` parallel cases (default 4),
 `-o` log directory, `-l` to list cases; positional arguments filter cases by
-name substring.
+name substring. The cases live in [`monty_cases.json`](monty_cases.json), which
+both runners share; pass `-c file.json` to select another case set. Relative
+paths are resolved from the repository root. The shell runner requires `jq`.
+
+### Python pydantic-ai runner
+
+[`pyrunner/monty_codegen.py`](pyrunner/monty_codegen.py) runs the same cases
+through Python pydantic-ai 2.55.0. Install `uv`, then run:
+
+```console
+uv run --project pyrunner pyrunner/monty_codegen.py \
+  -m openrouter:z-ai/glm-5.3-flash -b monty-sparktea sha256 enum generator match
+```
+
+It uses the same `-c` cases file and repo-root-relative path rule. Other useful
+options include `-j` for case concurrency, `-o` for the log directory, `-l`
+to list cases, and `--stall-timeout` / `--case-timeout` for stream and hard
+timeouts. Set `SPARKTEA_TEST_MODEL` to omit `-m`. Logfire export uses
+`LOGFIRE_TOKEN`, defaults to service `sparktea-runner`, and accepts the
+same `OTEL_SERVICE_NAME`, `LOGFIRE_ENDPOINT` and `LOGFIRE_SEND_CONTENT`
+settings as sparktea. The runner sends prompts, generated code and results to
+Logfire by default; set `LOGFIRE_SEND_CONTENT=0` to suppress them.
+
+| Python backend | Comparison | Isolation |
+| --- | --- | --- |
+| `monty-stock` | Upstream harness CodeMode defaults | Monty sandbox; stock limits and retry budget |
+| `monty-sparktea` | Matched Monty | Monty sandbox with sparktea's prompt, limits and retries; Python uses Monty 1.1.0 |
+| `cpython-sparktea` | Matched CPython | Local process with fresh scratch directory and filtered environment; no sandbox |
+| `shell` | Upstream Shell alternative | LocalWorkspace scratch directory only; it isolates nothing |
+| `shell-bwrap` | Upstream Shell alternative | Bubblewrap blocks writes outside scratch and network; host files remain readable |
+
+The runner needs `uv` to resolve and install its pinned dependencies; the
+shell runner needs `jq`. `shell-bwrap` also needs `bwrap` and working
+unprivileged user namespaces.
 
 ### Claude 5.5 Monty benchmark
 

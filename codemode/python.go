@@ -73,14 +73,7 @@ var pythonRunner string
 
 func runCodePythonDefinition() ai.ToolDefinition {
 	def := runCodeDefinition()
-	def.Description = "Run Python (CPython 3) locally and get back the result. The last " +
-		"expression's value returns automatically — no need to print() it.\n\n" +
-		"The full standard library is available; third-party packages may not be. " +
-		"Each call runs in a fresh process and a fresh scratch directory, so nothing " +
-		"carries over between calls. A call is stopped after 5 seconds.\n\n" +
-		"A bad script's error comes back as a message, not a hard failure — read it, " +
-		"fix the code, and call run_code again. Good for calculations, loops, or data " +
-		"wrangling that's easier to write than to reason through step by step."
+	def.Description = pythonDescription
 	return def
 }
 
