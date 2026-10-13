@@ -9,12 +9,13 @@
 # interesting columns are how many run_code calls failed and with what
 # error before the model found a Monty-compatible version.
 #
-# Usage: ./monty_codegen.sh [-m provider:model_id] [-b backend] [-j jobs] [-o outdir] [-l] [case ...]
+# Usage: ./monty_codegen.sh [-m provider:model_id] [-b backend] [-j jobs] [-o outdir] [-c cases.json] [-l] [case ...]
 #   -m  model (default: first from -list-models, or $SPARKTEA_TEST_MODEL)
 #   -b  code backend: monty (default) or cpython (local CPython, not
 #       sandboxed), to compare the same tasks without Monty's limits
 #   -j  cases to run in parallel (default 4)
 #   -o  directory for per-case stdout/stderr (default: a new temp dir)
+#   -c  cases JSON file (default: monty_cases.json)
 #   -l  list cases and exit
 #   case ...  run only cases whose name contains one of these substrings
 #
@@ -27,53 +28,48 @@ set -uo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")"
 
 BINARY="./sparktea"
-SUFFIX=' Use the run_code tool to compute it. End your reply with one line of the form "ANSWER: <value>", writing numbers without thousands separators unless asked otherwise.'
-
-# name<TAB>expected (substring of the ANSWER line)<TAB>prompt
-CASES=$(cat <<'EOF'
-basic_arith	338350	What is the sum of the squares of the integers 1 through 100?
-statistics	4.5	For the data [2, 4, 4, 4, 5, 5, 7, 9], use the statistics module to find the mean, median and population standard deviation. Give the median as the answer.
-primes	15	How many prime numbers are there below 50?
-inheritance	7.14	Write a Shape base class with Circle and Square subclasses that each override an area() method. What is the total area of a circle of radius 1 and a square of side 2, rounded to 2 decimal places?
-property	212	Write a Temperature class that stores Celsius and exposes a fahrenheit @property. What is the fahrenheit value for 100 Celsius?
-generator	832040	Write a generator function that yields Fibonacci numbers (F1=1, F2=1) and use it to find F30.
-match	8	Parse the commands ["move 3", "turn left", "move 5", "stop"] with a match statement and return the total distance moved.
-custom_exc	2	Define a custom ValidationError exception class. Validate the ages [25, -3, 40, 200, 18] (valid range 0-150), raising ValidationError for invalid ones. How many raise it?
-enum	6	Define an Enum Color with RED=1, GREEN=2, BLUE=3. What is the sum of all member values?
-dataclass	14	Use a dataclass Item(name, price, qty) with dataclasses.field defaults, build items apple(0.5, 10), pear(0.75, 4), fig(2.0, 3), convert them with dataclasses.asdict, and report the total inventory value (price * qty).
-counter	3	Using collections.Counter, how many times does the most common word occur in "the cat and the hat and the bat"?
-regex	3	How many valid email addresses are in this text: "alice@example.com, bob.smith@test.org; invalid@; carol@site.io"? Use a verbose (re.VERBOSE) regular expression.
-json	17	Parse this JSON and compute the order total (sum of qty * price): {"orders": [{"qty": 2, "price": 3.5}, {"qty": 1, "price": 10}]}
-datetime	992	How many days are there between 2024-01-15 and 2026-10-03?
-sha256	2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824	What is the SHA-256 hex digest of the ASCII string "hello"?
-asyncio	29	Using asyncio, run three coroutines concurrently that each return the square of 2, 3 and 4, and report the sum of the results.
-itertools	10	How many 3-element combinations of the numbers 1 through 10 sum to exactly 15?
-lru_cache	1346269	Using functools.lru_cache and recursion, how many ways are there to climb 30 stairs taking 1 or 2 steps at a time?
-latin1	233	Encode the string "café" using the latin-1 codec. What is the integer value of the last byte?
-sorting	cy, bo, dana, ali, eve	Sort these (name, age) records by age descending, then name ascending, and give the names comma-separated: [("dana", 31), ("ali", 25), ("bo", 31), ("cy", 40), ("eve", 25)]
-formatting	1,234,567	Format 1234567 with comma thousands separators using an f-string.
-deep_recursion	125250	Without using any loops or sum(), write a plain recursive function that adds the integers 1 through 500. What is the result?
-naive_fib	2178309	Using naive recursion with no memoization or loops, compute fib(32) where fib(0)=0 and fib(1)=1.
-EOF
-)
+CASES_FILE="monty_cases.json"
 
 model="${SPARKTEA_TEST_MODEL:-}"
+
 backend=monty
 jobs=4
 outdir=""
 list_only=0
-while getopts "m:b:j:o:lh" opt; do
+while getopts "m:b:j:o:c:lh" opt; do
 	case "$opt" in
 	m) model="$OPTARG" ;;
 	b) backend="$OPTARG" ;;
 	j) jobs="$OPTARG" ;;
 	o) outdir="$OPTARG" ;;
+	c) CASES_FILE="$OPTARG" ;;
 	l) list_only=1 ;;
 	*) sed -n '2,25p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;;
 	esac
 done
 shift $((OPTIND - 1))
 filters=("$@")
+
+if ! command -v jq >/dev/null 2>&1; then
+	echo "jq is required to read $CASES_FILE" >&2
+	exit 1
+fi
+if [ ! -f "$CASES_FILE" ]; then
+	echo "cases file not found: $CASES_FILE" >&2
+	exit 1
+fi
+if ! jq -e '
+	. as $root |
+	def safe_string: type == "string" and length > 0 and (test("[\\t\\r\\n]") | not);
+	($root.suffixes.run_code | safe_string) and ($root.cases | type == "array") and
+	([$root.cases[] | select((.name | safe_string) and (.name | test("^[A-Za-z0-9_-]+$")) and (.expected | safe_string) and (.prompt | safe_string))] | length == ($root.cases | length)) and
+	([$root.cases[].name] | length == (unique | length))
+' "$CASES_FILE" >/dev/null; then
+	echo "invalid cases file (need unique safe names and non-empty string fields without tabs/newlines): $CASES_FILE" >&2
+	exit 1
+fi
+SUFFIX=$(jq -r '.suffixes.run_code' "$CASES_FILE")
+CASES=$(jq -r '.cases[] | [.name,.expected,.prompt] | @tsv' "$CASES_FILE")
 
 selected() {
 	local name="$1" f

@@ -266,6 +266,27 @@ func TestRunCodeUnsupportedStdlibModules(t *testing.T) {
 	}
 }
 
+func TestModelFacingPromptAssets(t *testing.T) {
+	if got := runCodeDefinition().Description; got != montyDescription {
+		t.Fatal("Monty tool definition does not use its shared prompt asset")
+	}
+	if got := runCodePythonDefinition().Description; got != pythonDescription {
+		t.Fatal("CPython tool definition does not use its shared prompt asset")
+	}
+	if !strings.Contains(instructions, "restricted \"monty\" interpreter") {
+		t.Fatal("Monty instruction asset is missing its expected opening text")
+	}
+	for name, value := range map[string]string{
+		"Monty description":   montyDescription,
+		"CPython description": pythonDescription,
+		"Monty instruction":   instructions,
+	} {
+		if strings.HasSuffix(value, "\n") {
+			t.Errorf("%s has an unexpected trailing newline", name)
+		}
+	}
+}
+
 // TestRunCodeSupportedStdlibModules covers useful stdlib APIs in the latest
 // Monty release. random is explicitly seeded so it never needs host entropy;
 // time is checked only for its exported name because calls require a host OS

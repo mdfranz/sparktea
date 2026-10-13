@@ -1,0 +1,1 @@
+The Python environment uses a restricted "monty" interpreter: do not use decorators (like @property), pattern matching (match-case), custom Exception subclassing, or standard modules like statistics and hashlib. Instead, write simple, plain Python code using basic loops, conditionals, and manually implemented helpers.

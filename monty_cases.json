@@ -1,0 +1,124 @@
+{
+  "_comment": "Tasks for monty_codegen.sh (sparktea) and pyrunner/monty_codegen.py (pydantic-ai). Each prompt gets the suffix for the backend's tool; a case passes when its ANSWER line contains expected (whitespace ignored).",
+  "suffixes": {
+    "run_code": " Use the run_code tool to compute it. End your reply with one line of the form \"ANSWER: <value>\", writing numbers without thousands separators unless asked otherwise.",
+    "shell": " Use the run_command tool to run Python 3 (python3) to compute it. End your reply with one line of the form \"ANSWER: <value>\", writing numbers without thousands separators unless asked otherwise."
+  },
+  "cases": [
+    {
+      "name": "basic_arith",
+      "expected": "338350",
+      "prompt": "What is the sum of the squares of the integers 1 through 100?"
+    },
+    {
+      "name": "statistics",
+      "expected": "4.5",
+      "prompt": "For the data [2, 4, 4, 4, 5, 5, 7, 9], use the statistics module to find the mean, median and population standard deviation. Give the median as the answer."
+    },
+    {
+      "name": "primes",
+      "expected": "15",
+      "prompt": "How many prime numbers are there below 50?"
+    },
+    {
+      "name": "inheritance",
+      "expected": "7.14",
+      "prompt": "Write a Shape base class with Circle and Square subclasses that each override an area() method. What is the total area of a circle of radius 1 and a square of side 2, rounded to 2 decimal places?"
+    },
+    {
+      "name": "property",
+      "expected": "212",
+      "prompt": "Write a Temperature class that stores Celsius and exposes a fahrenheit @property. What is the fahrenheit value for 100 Celsius?"
+    },
+    {
+      "name": "generator",
+      "expected": "832040",
+      "prompt": "Write a generator function that yields Fibonacci numbers (F1=1, F2=1) and use it to find F30."
+    },
+    {
+      "name": "match",
+      "expected": "8",
+      "prompt": "Parse the commands [\"move 3\", \"turn left\", \"move 5\", \"stop\"] with a match statement and return the total distance moved."
+    },
+    {
+      "name": "custom_exc",
+      "expected": "2",
+      "prompt": "Define a custom ValidationError exception class. Validate the ages [25, -3, 40, 200, 18] (valid range 0-150), raising ValidationError for invalid ones. How many raise it?"
+    },
+    {
+      "name": "enum",
+      "expected": "6",
+      "prompt": "Define an Enum Color with RED=1, GREEN=2, BLUE=3. What is the sum of all member values?"
+    },
+    {
+      "name": "dataclass",
+      "expected": "14",
+      "prompt": "Use a dataclass Item(name, price, qty) with dataclasses.field defaults, build items apple(0.5, 10), pear(0.75, 4), fig(2.0, 3), convert them with dataclasses.asdict, and report the total inventory value (price * qty)."
+    },
+    {
+      "name": "counter",
+      "expected": "3",
+      "prompt": "Using collections.Counter, how many times does the most common word occur in \"the cat and the hat and the bat\"?"
+    },
+    {
+      "name": "regex",
+      "expected": "3",
+      "prompt": "How many valid email addresses are in this text: \"alice@example.com, bob.smith@test.org; invalid@; carol@site.io\"? Use a verbose (re.VERBOSE) regular expression."
+    },
+    {
+      "name": "json",
+      "expected": "17",
+      "prompt": "Parse this JSON and compute the order total (sum of qty * price): {\"orders\": [{\"qty\": 2, \"price\": 3.5}, {\"qty\": 1, \"price\": 10}]}"
+    },
+    {
+      "name": "datetime",
+      "expected": "992",
+      "prompt": "How many days are there between 2024-01-15 and 2026-10-03?"
+    },
+    {
+      "name": "sha256",
+      "expected": "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824",
+      "prompt": "What is the SHA-256 hex digest of the ASCII string \"hello\"?"
+    },
+    {
+      "name": "asyncio",
+      "expected": "29",
+      "prompt": "Using asyncio, run three coroutines concurrently that each return the square of 2, 3 and 4, and report the sum of the results."
+    },
+    {
+      "name": "itertools",
+      "expected": "10",
+      "prompt": "How many 3-element combinations of the numbers 1 through 10 sum to exactly 15?"
+    },
+    {
+      "name": "lru_cache",
+      "expected": "1346269",
+      "prompt": "Using functools.lru_cache and recursion, how many ways are there to climb 30 stairs taking 1 or 2 steps at a time?"
+    },
+    {
+      "name": "latin1",
+      "expected": "233",
+      "prompt": "Encode the string \"café\" using the latin-1 codec. What is the integer value of the last byte?"
+    },
+    {
+      "name": "sorting",
+      "expected": "cy, bo, dana, ali, eve",
+      "prompt": "Sort these (name, age) records by age descending, then name ascending, and give the names comma-separated: [(\"dana\", 31), (\"ali\", 25), (\"bo\", 31), (\"cy\", 40), (\"eve\", 25)]"
+    },
+    {
+      "name": "formatting",
+      "expected": "1,234,567",
+      "prompt": "Format 1234567 with comma thousands separators using an f-string."
+    },
+    {
+      "name": "deep_recursion",
+      "expected": "125250",
+      "prompt": "Without using any loops or sum(), write a plain recursive function that adds the integers 1 through 500. What is the result?"
+    },
+    {
+      "name": "naive_fib",
+      "expected": "2178309",
+      "prompt": "Using naive recursion with no memoization or loops, compute fib(32) where fib(0)=0 and fib(1)=1."
+    }
+  ]
+}

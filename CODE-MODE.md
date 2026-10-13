@@ -341,6 +341,65 @@ status keeps only the exception type.
 The call timings come from 273 `monty.run` spans and 238 `python.run` spans
 recorded on October 12, 2026.
 
+## Python pydantic-ai comparison
+
+[`pyrunner/monty_codegen.py`](pyrunner/monty_codegen.py) compares the same
+cases through pydantic-ai 2.55.0 and pydantic-ai-harness 0.55.0. It has two
+matched configurations and three upstream or alternative configurations:
+
+- **`monty-stock`** uses harness `CodeMode()` defaults: 30 s, 256 MiB and
+  1,000 suspensions, with three retries. It has a shorter tool description
+  and no additional Monty instruction.
+- **`monty-sparktea`** sets 5 s and 64 MiB, allows 20 retries, and shares
+  sparktea's tool description and Monty instruction. This aligns the prompt
+  and most limits, while leaving the harness behavior intact: its `run_code`
+  accepts `restart` and keeps REPL state between calls. It also uses Monty
+  1.1.0, while sparktea's gomonty embeds Monty 1.0.1. It is therefore a close
+  comparison, not the same implementation.
+- **`cpython-sparktea`** uses a custom stateless `run_code` tool and reuses
+  [`python_runner.py`](codemode/python_runner.py), with the same description,
+  trailing-expression behavior and 5 s timeout as sparktea. It runs a local
+  `python3 -I` process with a 512 MiB address-space limit and filtered
+  environment. The scratch directory does not make it a sandbox.
+- **`shell`** runs harness `Shell` with a `LocalWorkspace` and allows Python
+  commands. This is an upstream alternative: the model sees `run_command`,
+  starts Python itself, and gets shell output and exit codes. It allows 20
+  retries for disallowed commands; a non-zero exit is a normal result, which
+  the runner logs as a tool error typed by the Python exception. The local
+  workspace only sets a working directory and environment; it isolates
+  nothing.
+- **`shell-bwrap`** wraps that workspace in `BubblewrapSandbox`. Commands can
+  write only in the scratch area and have no network, while host files remain
+  readable. It requires `bwrap` and working unprivileged user namespaces.
+
+Pydantic-ai's `LocalWorkspace` and pydantic-ai-go's `ai.NewLocalWorkspace`
+have the same local-workspace model: each provides a working directory and
+controlled environment but no security boundary. pydantic-ai-go has no
+counterpart for harness `Shell` or `BubblewrapSandbox`. A Bubblewrap-wrapped
+`WorkspaceBackend` could provide a comparable isolated CPython configuration
+for sparktea as a follow-up.
+
+The Python runner tags one `sparktea turn` root span per case with
+`sparktea.implementation=python`. Its Logfire tags include the same broad
+`monty` or `cpython` tags as sparktea, the selected runner backend (such as
+`monty-sparktea` or `cpython-sparktea`), and `pydantic-ai`; Shell runs use
+`shell` plus their selected backend. Its `chat <model>` spans provide request,
+token and cost data. The local tool spans (`monty.run` and `python.run`) record
+outcome and code size. `python.exec_ms` is interpreter time, as in sparktea;
+`monty.call_ms` covers the whole harness tool call. Go's `monty.run` has no
+timing attribute, so compare Monty spans by duration. Setting `LOGFIRE_SEND_CONTENT=0`
+suppresses prompts, code and results while retaining the trace structure and
+usage metadata; content is sent by default. The runner's default Logfire service is `sparktea-runner`,
+separate from sparktea's `sparktea` service.
+
+The default [`monty_cases.json`](monty_cases.json) is deliberately weighted
+toward unsupported syntax and standard-library gaps. It measures how models
+adapt to Monty, including retries and replacement code. The separate
+[`monty_representative_cases.json`](monty_representative_cases.json) contains
+portable workloads with short, idiomatic solutions in both Monty 1.1.0 and
+CPython. Use the representative suite for end-to-end cost and latency
+comparisons, and interpreter child spans for execution-speed comparisons.
+
 ## Known gaps
 
 - The CPython backend isn't in the TUI; `/code` always uses Monty.

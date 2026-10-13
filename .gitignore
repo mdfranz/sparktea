@@ -1,3 +1,5 @@
 /sparktea
 .env
 .claude/worktrees/
+/pyrunner/.venv/
+/pyrunner/__pycache__/

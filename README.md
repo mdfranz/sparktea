@@ -22,7 +22,18 @@ idiomatic port of [PydanticAI](https://ai.pydantic.dev/) by
 everything sparktea does is pydantic-ai-go doing the real work; this repo
 just wires it up to a terminal:
 
-
+| sparktea feature | pydantic-ai-go piece behind it |
+| --- | --- |
+| The whole chat loop, streamed token-by-token | `ai.Agent`, `Agent.StartRun`, `PartStartEvent`/`PartDeltaEvent` |
+| Every model provider (OpenRouter, Gemini, Anthropic, Mistral, OpenAI) | `ai/models/*` provider adapters |
+| Cross-provider history when you `/model` mid-conversation | `ai.ModelMessage`, `ai.WithMessageHistory` — a provider-neutral message format |
+| `/search` web grounding and `/get` | `ai.WebSearchTool`, `ai.WebFetchTool` / `ai.WithRunNativeTools` |
+| Thinking traces rendered above the answer | `ai.ThinkingPart` / `ai.ThinkingPartDelta` |
+| `/code` and its retry prompts | `ai.CapabilityRegistry`, `ai.Retryf` |
+| `-code-backend cpython` | `ai.NewLocalWorkspaceBackend` |
+| `/save` and `/load` | `ai.MarshalMessages` / `ai.UnmarshalMessages` |
+| `/usage` totals, including cost | `ai.Usage` and its `genai-prices` integration |
+| Logfire tracing | `ai.NewInstrumentation`, pydantic-ai-go's OpenTelemetry capability |
 
 pydantic-ai-go is MIT-licensed and under active development, with a much
 larger surface than sparktea touches — tool calling, structured output,
@@ -165,7 +176,67 @@ For each case it reports pass/fail, `run_code` calls, failed calls by error
 type, and the answer. Flags: `-m provider:model_id`, `-b cpython` to run the
 same tasks on local CPython for comparison, `-j` parallel cases (default 4),
 `-o` log directory, `-l` to list cases; positional arguments filter cases by
-name substring.
+name substring. The cases live in [`monty_cases.json`](monty_cases.json), which
+both runners share; pass `-c file.json` to select another case set. Relative
+paths are resolved from the repository root. The shell runner requires `jq`.
+
+That default suite is a compatibility stress test, not an interpreter-speed
+benchmark. For ordinary Code Mode work that stays within the Python subset
+shared by Monty and CPython, use
+[`monty_representative_cases.json`](monty_representative_cases.json). Its 14
+cases cover aggregation, joins, rolling windows, text and regex processing,
+interval merging, graph traversal, dynamic programming, JSON/base64,
+combinations, matrix work and multi-key sorting:
+
+```console
+./monty_codegen.sh -c monty_representative_cases.json \
+  -m openrouter:z-ai/glm-5.3-flash
+
+uv run --project pyrunner pyrunner/monty_codegen.py \
+  -c monty_representative_cases.json \
+  -m openrouter:z-ai/glm-5.3-flash -b monty-sparktea
+```
+
+This suite measures end-to-end agent behavior: success, retries, model tokens,
+cost and elapsed time. To compare interpreter execution speed, use the
+`monty.run` and `python.run` spans rather than the case duration, which is
+dominated by model generation.
+
+### Python pydantic-ai runner
+
+[`pyrunner/monty_codegen.py`](pyrunner/monty_codegen.py) runs the same cases
+through Python pydantic-ai 2.55.0. Install `uv`, then run:
+
+```console
+uv run --project pyrunner pyrunner/monty_codegen.py \
+  -m openrouter:z-ai/glm-5.3-flash -b monty-sparktea sha256 enum generator match
+```
+
+It uses the same `-c` cases file and repo-root-relative path rule. Other useful
+options include `-j` for case concurrency, `-o` for the log directory, `-l`
+to list cases, and `--stall-timeout` / `--case-timeout` for stream and hard
+timeouts. Set `SPARKTEA_TEST_MODEL` to omit `-m`. Logfire export uses
+`LOGFIRE_TOKEN`, defaults to service `sparktea-runner`, and accepts the
+same `OTEL_SERVICE_NAME`, `LOGFIRE_ENDPOINT` and `LOGFIRE_SEND_CONTENT`
+settings as sparktea. The runner sends prompts, generated code and results to
+Logfire by default; set `LOGFIRE_SEND_CONTENT=0` to suppress them.
+
+It writes the same `NAME.stdout`, `NAME.stderr` and `NAME.result` files and
+summary table as `monty_codegen.sh`, so the same analysis works on both. Its
+`sparktea turn` spans carry `sparktea.implementation=python` and the
+`pydantic-ai` tag, to separate them from Go runs in Logfire.
+
+| Python backend | Comparison | Isolation |
+| --- | --- | --- |
+| `monty-stock` | Upstream harness CodeMode defaults | Monty sandbox; stock limits and retry budget |
+| `monty-sparktea` | Matched Monty | Monty sandbox with sparktea's prompt, 5 s / 64 MiB limits and 20 retries; no recursion cap and 1,000 suspensions (sparktea: 100 and 10); Python uses Monty 1.1.0 |
+| `cpython-sparktea` | Matched CPython | Local process with a fresh scratch directory per case (sparktea: per call) and filtered environment; no sandbox |
+| `shell` | Upstream Shell alternative | LocalWorkspace scratch directory only; it isolates nothing |
+| `shell-bwrap` | Upstream Shell alternative | Bubblewrap blocks writes outside scratch and network; host files remain readable |
+
+The runner needs `uv` to resolve and install its pinned dependencies; the
+shell runner needs `jq`. `shell-bwrap` also needs `bwrap` and working
+unprivileged user namespaces.
 
 ### Claude 5.5 Monty benchmark
 
@@ -383,8 +454,10 @@ Sandboxing guarantees:
 
 When `/code` is on, a short instruction is also added to the system prompt
 telling the model to avoid decorators, `match`, custom exception subclasses, and
-modules like `statistics` and `hashlib` (see `instructions` in
-`codemode/codemode.go`). It is off with code mode, so plain chats are unaffected.
+modules like `statistics` and `hashlib` (see
+`codemode/monty_instructions.txt`; the `run_code` descriptions are in
+`codemode/run_code_description.txt` and `codemode/run_code_python_description.txt`,
+shared with the Python runner). It is off with code mode, so plain chats are unaffected.
 
 `codemode/codemode_test.go` covers the binding and a Monty v1.0.1 acceptance
 matrix for useful language and standard-library features. The matrix guards
@@ -454,7 +527,7 @@ otherwise leave it out, since an adapter without that interface has any
 ## Updating pydantic-ai-go
 
 `pydantic-ai-go` is a normal Go module dependency, pinned to a tagged
-release in `go.mod` (currently v0.4.0). To move to a newer release:
+release in `go.mod` (currently v0.5.0). To move to a newer release:
 
 ```console
 go get github.com/Kludex/pydantic-ai-go@<version>
