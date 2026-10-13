@@ -21,6 +21,10 @@ Both models show the same pattern:
   and two for Haiku.
 - **The execution environment doesn't show in the results.**
 
+On the [14 representative tasks](#representative-cases-14-tasks), every
+configuration passed everything, and Monty's only remaining cost is its
+longer prompt: about 43–63% more per task than CPython.
+
 One harness bug turned up: `BubblewrapSandbox` fails when the model's first
 commands in a case run in parallel (see [Haiku](#bubblewrap-race-with-parallel-tool-calls)).
 
@@ -213,12 +217,68 @@ pydantic-ai-harness 0.55.0, 10 trials each:
 
 GLM never made parallel calls, so its `shell-bwrap` run didn't hit this.
 
+## Representative cases (14 tasks)
+
+[`monty_representative_cases.json`](../monty_representative_cases.json) has
+14 ordinary tasks (aggregation, joins, rolling windows, graph search, dynamic
+programming, JSON and base64, sorting) with short solutions that run on both
+Monty and CPython. Both models ran them on all seven backends from 01:20 to
+01:25 UTC.
+
+Every run passed 14/14. Costs are GLM at list price (repriced as above) and
+Haiku as recorded.
+
+| Backend | GLM calls / failed | GLM input tokens | GLM cost | Haiku calls / failed | Haiku input tokens | Haiku cost |
+|---|---|---:|---:|---|---:|---:|
+| Go `monty` | 15 / 0 | 30,099 | $0.0060 | 14 / 0 | 45,953 | $0.0072 |
+| Python `monty-sparktea` | 16 / 0 | 33,467 | $0.0061 | 15 / 1 | 47,803 | $0.0077 |
+| Python `monty-stock` | 18 / 2 | 32,981 | $0.0055 | 17 / 3 | 48,346 | $0.0076 |
+| Go `cpython` | 14 / 0 | 15,561 | $0.0037 | 14 / 0 | 24,925 | $0.0050 |
+| Python `cpython-sparktea` | 14 / 0 | 15,405 | $0.0038 | 14 / 0 | 24,655 | $0.0050 |
+| Python `shell` | 14 / 0 | 16,549 | $0.0047 | 14 / 0 | 23,808 | $0.0048 |
+| Python `shell-bwrap` | 14 / 0 | 16,047 | $0.0043 | 14 / 0 | 23,589 | $0.0047 |
+
+- **Without Monty's gaps in play, everything succeeds.** Six failures in 207
+  calls, all in the Monty runs.
+- **Monty still costs more, from prompt size alone.** The Monty runs made
+  the same number of requests (28–32) as the CPython runs (28), but used
+  about twice the input tokens. For Haiku that is about 750 extra input
+  tokens per request: Monty's longer tool description and instruction. It
+  made Monty 43–54% more expensive than CPython for Haiku and 43–63% for GLM.
+- **Go and Python agree** on each backend, within 0–7% in cost.
+- **The stock prompt costs about the same here.** Its description is also
+  long, and with few retries the difference in description doesn't matter.
+
+### Failures
+
+| Run | Case | Error |
+|---|---|---|
+| GLM `monty-stock` | `sales_rollup` | `AttributeError` ×2: `max(revenue, key=revenue.get)` |
+| Haiku `monty-stock` | `sales_rollup`, `error_latency` | `AttributeError`: `max(d, key=d.get)` |
+| Haiku `monty-stock` | `base64_orders` | `ModuleNotFoundError`: `decimal` |
+| Haiku `monty-sparktea` | `grid_path` | `run_code` called with no arguments (see #14) |
+
+`max(d, key=d.get)` is a common idiom, and Monty doesn't support it: a method
+can't be used as a value. A direct test gives the same result on Monty 1.0.1
+(sparktea) as on 1.1.0 (the harness):
+
+| Code | Result |
+|---|---|
+| `max(d, key=d.get)` | `AttributeError: 'dict' object has no attribute 'get'` |
+| `f = d.get; f('b')` | same error |
+| `sorted(s, key=str.upper)` | `AttributeError: type object 'str' has no attribute 'upper'` |
+| `max(d, key=lambda k: d[k])` | works |
+
+sparktea's `run_code` description doesn't mention this. The models wrote
+`key=d.get` in 10 of the CPython and shell runs, but never in a run with
+sparktea's Monty prompt.
+
 ## Method
 
 - **Runs:** `monty_codegen.sh -m openrouter:z-ai/glm-5.3-flash -b <monty|cpython>`
   and `pyrunner/monty_codegen.py -m openrouter:z-ai/glm-5.3-flash -b <backend>`,
   each at the default four cases in parallel, one run at a time, on main
-  at `9d40d70`: GLM from 00:56 to 01:03 UTC, Haiku from 01:10 to 01:12 UTC.
+  at `9d40d70`: GLM from 00:56 to 01:03 UTC, Haiku from 01:10 to 01:12 UTC; the representative cases from 01:20 to 01:25 UTC.
 - **Passed, calls and failures:** from the per-case `.result` files.
 - **Requests, tokens, model time and cost:** from Logfire (project
   `tomfoolery`; services `sparktea` and `sparktea-runner`), summed over

@@ -302,6 +302,9 @@ sparktea and on the Python runner's five backends.
   out of its 3 retries. Its description doesn't list Monty's gaps.
 - **Cost recording:** through OpenRouter, pydantic-ai-go records the billed
   cost and Python pydantic-ai the list price, so compare tokens or reprice.
+- **Representative tasks:** on the 14 tasks in
+  `monty_representative_cases.json`, every configuration passed all 14.
+  Monty still cost 43–63% more than CPython, from its longer prompt alone.
 - **Bubblewrap:** the harness sandbox fails when a case's first commands run
   in parallel and `HOME` is inside the working directory.
 
