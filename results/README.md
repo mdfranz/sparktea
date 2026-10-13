@@ -11,7 +11,7 @@ once per configuration.
 |---|---|
 | [claude-5-5-monty-analysis.md](claude-5-5-monty-analysis.md) | Claude Haiku, Sonnet and Opus 5.5 (October 10, 2026): scores, cost, and a case-by-case review of the generated Python |
 | [monty-vs-cpython.md](monty-vs-cpython.md) | Six models on the Monty and CPython Code Mode backends (October 12, 2026): cost, retries, error types and interpreter speed |
-| [go-vs-python-pydantic-ai.md](go-vs-python-pydantic-ai.md) | GLM 5.3 Flash on sparktea (pydantic-ai-go) and Python pydantic-ai with five backends (October 13, 2026): matched and stock CodeMode, CPython, harness Shell and Bubblewrap |
+| [go-vs-python-pydantic-ai.md](go-vs-python-pydantic-ai.md) | GLM 5.3 Flash and Claude Haiku 5.5 on sparktea (pydantic-ai-go) and Python pydantic-ai with five backends (October 13, 2026): matched and stock CodeMode, CPython, harness Shell and Bubblewrap |
 | [openrouter-monty-codegen.md](openrouter-monty-codegen.md) | Qwen 3.8 Flash, DeepSeek V4 Flash, GLM 5.3 Flash and DeepSeek V4 Pro 0813: the October 12 retest compared with Claude 5.5, and the October 10 runs before and after the `StartRun` fix |
 
 ## Infographics

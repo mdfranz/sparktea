@@ -292,16 +292,18 @@ description and instruction add about 2,000 characters to every request. See
 
 ### Go vs. Python pydantic-ai
 
-On October 13, 2026, GLM 5.3 Flash ran the tasks on sparktea and on the
-Python runner's five backends.
+On October 13, 2026, GLM 5.3 Flash and Claude Haiku 5.5 ran the tasks on
+sparktea and on the Python runner's five backends.
 
-- **Same prompt, same result:** Go `monty` and Python `monty-sparktea` had
-  the same failures (6) and cost within 2%. The CPython backends were as
+- **Same prompt, similar result:** Go `monty` and Python `monty-sparktea`
+  were within 10% on cost for both models. The CPython backends were as
   close.
-- **Stock CodeMode:** 24 failed calls against 6, and one case ran out of its
-  3 retries. Its description doesn't list Monty's gaps.
-- **Cost recording:** pydantic-ai-go records OpenRouter's billed cost, and
-  Python pydantic-ai records list price, so compare tokens or reprice.
+- **Stock CodeMode:** 19–24 failed calls against 6, and one or two cases ran
+  out of its 3 retries. Its description doesn't list Monty's gaps.
+- **Cost recording:** through OpenRouter, pydantic-ai-go records the billed
+  cost and Python pydantic-ai the list price, so compare tokens or reprice.
+- **Bubblewrap:** the harness sandbox fails when a case's first commands run
+  in parallel and `HOME` is inside the working directory.
 
 See [results/go-vs-python-pydantic-ai.md](results/go-vs-python-pydantic-ai.md).
 
