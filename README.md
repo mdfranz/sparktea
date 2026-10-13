@@ -290,6 +290,21 @@ The saving comes from fewer retries and from a smaller prompt: Monty's tool
 description and instruction add about 2,000 characters to every request. See
 [results/monty-vs-cpython.md](results/monty-vs-cpython.md).
 
+### Go vs. Python pydantic-ai
+
+On October 13, 2026, GLM 5.3 Flash ran the tasks on sparktea and on the
+Python runner's five backends.
+
+- **Same prompt, same result:** Go `monty` and Python `monty-sparktea` had
+  the same failures (6) and cost within 2%. The CPython backends were as
+  close.
+- **Stock CodeMode:** 24 failed calls against 6, and one case ran out of its
+  3 retries. Its description doesn't list Monty's gaps.
+- **Cost recording:** pydantic-ai-go records OpenRouter's billed cost, and
+  Python pydantic-ai records list price, so compare tokens or reprice.
+
+See [results/go-vs-python-pydantic-ai.md](results/go-vs-python-pydantic-ai.md).
+
 [results/README.md](results/README.md) indexes all benchmark reports and graphics.
 
 ### Scripting multi-turn sequences
