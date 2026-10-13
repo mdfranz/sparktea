@@ -22,7 +22,18 @@ idiomatic port of [PydanticAI](https://ai.pydantic.dev/) by
 everything sparktea does is pydantic-ai-go doing the real work; this repo
 just wires it up to a terminal:
 
-
+| sparktea feature | pydantic-ai-go piece behind it |
+| --- | --- |
+| The whole chat loop, streamed token-by-token | `ai.Agent`, `Agent.StartRun`, `PartStartEvent`/`PartDeltaEvent` |
+| Every model provider (OpenRouter, Gemini, Anthropic, Mistral, OpenAI) | `ai/models/*` provider adapters |
+| Cross-provider history when you `/model` mid-conversation | `ai.ModelMessage`, `ai.WithMessageHistory` — a provider-neutral message format |
+| `/search` web grounding and `/get` | `ai.WebSearchTool`, `ai.WebFetchTool` / `ai.WithRunNativeTools` |
+| Thinking traces rendered above the answer | `ai.ThinkingPart` / `ai.ThinkingPartDelta` |
+| `/code` and its retry prompts | `ai.CapabilityRegistry`, `ai.Retryf` |
+| `-code-backend cpython` | `ai.NewLocalWorkspaceBackend` |
+| `/save` and `/load` | `ai.MarshalMessages` / `ai.UnmarshalMessages` |
+| `/usage` totals, including cost | `ai.Usage` and its `genai-prices` integration |
+| Logfire tracing | `ai.NewInstrumentation`, pydantic-ai-go's OpenTelemetry capability |
 
 pydantic-ai-go is MIT-licensed and under active development, with a much
 larger surface than sparktea touches — tool calling, structured output,
@@ -210,11 +221,16 @@ same `OTEL_SERVICE_NAME`, `LOGFIRE_ENDPOINT` and `LOGFIRE_SEND_CONTENT`
 settings as sparktea. The runner sends prompts, generated code and results to
 Logfire by default; set `LOGFIRE_SEND_CONTENT=0` to suppress them.
 
+It writes the same `NAME.stdout`, `NAME.stderr` and `NAME.result` files and
+summary table as `monty_codegen.sh`, so the same analysis works on both. Its
+`sparktea turn` spans carry `sparktea.implementation=python` and the
+`pydantic-ai` tag, to separate them from Go runs in Logfire.
+
 | Python backend | Comparison | Isolation |
 | --- | --- | --- |
 | `monty-stock` | Upstream harness CodeMode defaults | Monty sandbox; stock limits and retry budget |
-| `monty-sparktea` | Matched Monty | Monty sandbox with sparktea's prompt, limits and retries; Python uses Monty 1.1.0 |
-| `cpython-sparktea` | Matched CPython | Local process with fresh scratch directory and filtered environment; no sandbox |
+| `monty-sparktea` | Matched Monty | Monty sandbox with sparktea's prompt, 5 s / 64 MiB limits and 20 retries; no recursion cap and 1,000 suspensions (sparktea: 100 and 10); Python uses Monty 1.1.0 |
+| `cpython-sparktea` | Matched CPython | Local process with a fresh scratch directory per case (sparktea: per call) and filtered environment; no sandbox |
 | `shell` | Upstream Shell alternative | LocalWorkspace scratch directory only; it isolates nothing |
 | `shell-bwrap` | Upstream Shell alternative | Bubblewrap blocks writes outside scratch and network; host files remain readable |
 
@@ -438,8 +454,10 @@ Sandboxing guarantees:
 
 When `/code` is on, a short instruction is also added to the system prompt
 telling the model to avoid decorators, `match`, custom exception subclasses, and
-modules like `statistics` and `hashlib` (see `instructions` in
-`codemode/codemode.go`). It is off with code mode, so plain chats are unaffected.
+modules like `statistics` and `hashlib` (see
+`codemode/monty_instructions.txt`; the `run_code` descriptions are in
+`codemode/run_code_description.txt` and `codemode/run_code_python_description.txt`,
+shared with the Python runner). It is off with code mode, so plain chats are unaffected.
 
 `codemode/codemode_test.go` covers the binding and a Monty v1.0.1 acceptance
 matrix for useful language and standard-library features. The matrix guards
@@ -509,7 +527,7 @@ otherwise leave it out, since an adapter without that interface has any
 ## Updating pydantic-ai-go
 
 `pydantic-ai-go` is a normal Go module dependency, pinned to a tagged
-release in `go.mod` (currently v0.4.0). To move to a newer release:
+release in `go.mod` (currently v0.5.0). To move to a newer release:
 
 ```console
 go get github.com/Kludex/pydantic-ai-go@<version>
