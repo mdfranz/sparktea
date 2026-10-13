@@ -310,7 +310,8 @@ sparktea and on the Python runner's five backends.
 
 See [results/go-vs-python-pydantic-ai.md](results/go-vs-python-pydantic-ai.md).
 
-[results/README.md](results/README.md) indexes all benchmark reports and graphics.
+[results/README.md](results/README.md) indexes all benchmark reports and graphics,
+and has a case study of the `sha256` task across all configurations.
 
 ### Scripting multi-turn sequences
 

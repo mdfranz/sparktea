@@ -56,7 +56,7 @@ Outliers are in bold.
 - **Qwen code volume:** 22k chars across all calls, about three times the
   Claude models. Most of it is self-checking. Its `sha256` case took five
   calls and about 10k chars to write SHA-256, test it against known digests,
-  and fix it.
+  and fix it (see [Case study: `sha256`](#case-study-sha256)).
 - **Open-model speed:** every open model averaged 10–15 s per case, against
   3–6 s for Claude. The slowest single cases were Qwen and DeepSeek Pro at
   about 84 s each.
@@ -64,10 +64,59 @@ Outliers are in bold.
   `run_code` returned `1,234,567`, and Haiku wrote `1234567`.
 - **GLM `sha256` (October 10):** ran for 821 s and ended when the OpenRouter
   stream reset. That was under `RunStream`; the October 12 retest solved it
-  in one call.
+  in one call (see [Case study: `sha256`](#case-study-sha256)).
 - **`RunStream` (October 10):** before the `StartRun` fix, DeepSeek V4 Pro
   scored 9/23 and DeepSeek Flash and GLM about 15/23. It was a sparktea bug,
   not the models.
+
+## Case study: `sha256`
+
+The `sha256` task asks for the SHA-256 digest of `"hello"`. In CPython that
+is `hashlib.sha256(b"hello").hexdigest()`. Monty has no `hashlib`, so the
+case shows how a model behaves when its standard tool is missing.
+
+The October 13 runs from
+[go-vs-python-pydantic-ai.md](go-vs-python-pydantic-ai.md) gave every
+configuration the same task:
+
+| Configuration | GLM 5.3 Flash | Claude Haiku 5.5 |
+|---|---|---|
+| CPython or shell (4 backends) | `hashlib`; 1 call, 2–7 s | `hashlib`; 1 call, 1–2 s (one run lost to the Bubblewrap race) |
+| Monty, sparktea's prompt (Go and Python) | hand-written; 1 call, 23–47 s | hand-written; 1 call, 6–7 s |
+| Monty, stock CodeMode prompt | **6 calls, 3 failed, 132 s** | 3 calls, 2 failed, 11 s |
+
+All runs got the right digest. How they got there depended on what the
+prompt said:
+
+- **Full standard library:** a one-line `hashlib` call.
+- **Told `hashlib` is missing:** both models wrote SHA-256 from scratch
+  (constants, padding and compression rounds) and got it right on the first
+  call. GLM spent 3,476 reasoning tokens, a single 46 s request, before
+  writing it.
+- **Not told:** the model had to find the limits by trial. GLM's stock run:
+  1. `import hashlib`: `ModuleNotFoundError`.
+  2. A hand-written SHA-256: `'int' object has no attribute 'to_bytes'`.
+  3. A workaround: `cannot convert 'list' object to bytes`.
+  4. A probe instead of another attempt: small tests of what bytes support
+     exists. `bytes([1, 2, 3])` fails, `bytearray` doesn't exist,
+     `b'a' + b'b'` works, and `bytes("x")` needs an encoding.
+  5. A rewrite over plain integer lists using `ord()`, avoiding bytes.
+  6. Unprompted, a check against known test vectors (`""`, `"abc"` and
+     `"hello"`), each reported as `MATCH`.
+
+  Haiku's stock run was shorter: `hashlib` was missing, then `bytearray`,
+  then a hand-written version that worked.
+
+The stock run's six calls are 40% of its case time and a third of its code.
+Its slow requests produced 32–44 output tokens/s, against about 100 tokens/s
+elsewhere. sparktea's tool description lists `int.to_bytes` and `bytearray` as
+missing, which is how the matched runs avoided them. `bytes(list)` isn't
+listed; #16 tracks it.
+
+Earlier runs show the same split. Qwen 3.8 Flash took five
+calls and about 10k chars, testing its own SHA-256 against known digests.
+GLM on October 10 ran for 821 s until the OpenRouter stream reset, under the
+`RunStream` bug since fixed.
 
 ## Method
 
@@ -77,4 +126,7 @@ Outliers are in bold.
 - **Calls and errors:** from the per-case `.result` files that
   `monty_codegen.sh` writes.
 - **Code size:** from the `[tool call] run_code` lines on stderr.
+- **Case study:** from the October 13 runs of `monty_codegen.sh` and
+  `pyrunner/monty_codegen.py`; request timings and token counts from
+  Logfire (services `sparktea` and `sparktea-runner`).
 - **Logs:** the raw run logs aren't kept in the repo.
