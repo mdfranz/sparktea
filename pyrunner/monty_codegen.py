@@ -234,13 +234,15 @@ class MontyDescriptionToolset(WrapperToolset[Any]):
         ) as span:
             try:
                 result = await self.wrapped.call_tool(name, tool_args, ctx, tool)
+                span.set_attribute("monty.exit_code", 0)
                 return result
             except BaseException as exc:
                 span.set_attribute("monty.exit_code", 1)
                 span.set_attribute("monty.error_type", traceback_type(str(exc)))
                 raise
             finally:
-                span.set_attribute("monty.exec_ms", (time.monotonic() - started) * 1000)
+                # The whole harness tool call, not interpreter time alone.
+                span.set_attribute("monty.call_ms", (time.monotonic() - started) * 1000)
 
 
 class SparkteaCodeMode(CodeMode):
@@ -300,8 +302,6 @@ def make_agent(model: str, backend: str, scratch: Path | None) -> Agent[None, st
 
         run_code.__name__ = "run_code"
         run_code.__doc__ = PYTHON_DESCRIPTION.read_text(encoding="utf-8")
-        # Native tool schemas are built from the function signature and docstring.
-        capabilities.extend([])
         return Agent(
             model,
             name="sparktea",
@@ -325,6 +325,9 @@ def make_agent(model: str, backend: str, scratch: Path | None) -> Agent[None, st
                 tools=["run_command"],
             )
         )
+        # Shell raises ModelRetry for disallowed commands; match the 20
+        # retries the other matched backends allow instead of the default 1.
+        return Agent(model, name="sparktea", instructions=instructions, capabilities=capabilities, retries=20)
     return Agent(model, name="sparktea", instructions=instructions, capabilities=capabilities)
 
 
@@ -346,7 +349,9 @@ def configure_logfire() -> None:
 
 
 def error_message(exc: BaseException) -> str:
-    if isinstance(exc, asyncio.TimeoutError):
+    # The stall check raises TimeoutError with a message; the hard timeout
+    # (asyncio.wait_for) raises one without.
+    if isinstance(exc, TimeoutError) and not str(exc):
         return "TimeoutError: case hard timeout exceeded"
     return f"{type(exc).__name__}: {exc}"
 
@@ -356,7 +361,7 @@ async def execute_case(
     outdir: Path, semaphore: asyncio.Semaphore, stall_timeout: float, case_timeout: float,
 ) -> dict[str, Any]:
     name = case["name"]
-    started = time.monotonic()
+    started: float | None = None
     stderr: list[str] = []
     calls = errors = 0
     error_types: dict[str, int] = {}
@@ -394,85 +399,85 @@ async def execute_case(
             tags = list(dict.fromkeys([technology_tag, backend, "pydantic-ai"]))
             prompt_suffix = suffixes["shell"] if backend.startswith("shell") else suffixes["run_code"]
             events_context = agent.run_stream_events(case["prompt"] + prompt_suffix)
-            event_deadline = time.monotonic() + case_timeout
             # Use Logfire's tag API (not a `logfire.tags` span attribute) so
             # these show up in its tag filters and the records.tags column.
+            # The hard case timeout is the asyncio.wait_for around run().
             with logfire.span("sparktea turn", _tags=tags, **attrs):
-                async with asyncio.timeout(case_timeout):
-                    async with events_context as events:
-                        iterator = events.__aiter__()
-                        while True:
-                            remaining = stall_timeout
-                            hard_remaining = event_deadline - time.monotonic()
-                            if hard_remaining <= 0:
-                                raise TimeoutError("case hard timeout exceeded")
-                            try:
-                                event = await asyncio.wait_for(anext(iterator), timeout=min(remaining, hard_remaining))
-                            except StopAsyncIteration:
-                                break
-                            except TimeoutError as exc:
-                                if time.monotonic() >= event_deadline:
-                                    raise TimeoutError("case hard timeout exceeded") from exc
-                                raise TimeoutError(f"model stream stalled for {stall_timeout:g}s") from exc
-                            if isinstance(event, PartStartEvent) and isinstance(event.part, TextPart):
-                                text_parts[event.index] = event.part.content
-                            elif isinstance(event, PartDeltaEvent):
-                                delta = getattr(event.delta, "content_delta", None)
-                                if isinstance(delta, str):
-                                    text_parts[event.index] = text_parts.get(event.index, "") + delta
-                            elif isinstance(event, FunctionToolCallEvent):
-                                part = event.part
-                                calls += 1
-                                add_tool_call(stderr, part.tool_name, part.args)
-                            elif isinstance(event, FunctionToolResultEvent):
-                                part = event.part
-                                tool = part.tool_name
-                                if isinstance(part, RetryPromptPart):
-                                    message = str(part.content)
-                                    errors += 1
-                                    error_types[traceback_type(message)] = error_types.get(traceback_type(message), 0) + 1
-                                    stderr.append(f"[tool error] {tool} {message}")
-                                elif isinstance(part, ToolReturnPart):
-                                    content = part.content
-                                    add_tool_result(stderr, tool, content)
-                                    if tool == "run_command":
-                                        content_text = str(content)
-                                        match = re.search(r"\[exit code: (\d+)\]", content_text)
-                                        if match and int(match.group(1)) != 0:
-                                            message = f"RuntimeError: command exited with status {match.group(1)}"
-                                            errors += 1
-                                            error_types["RuntimeError"] = error_types.get("RuntimeError", 0) + 1
-                                            stderr.append(f"[tool error] {tool} {message}")
-                                        if "[Command timed out" in content_text:
-                                            message = "TimeoutError: command timed out"
-                                            errors += 1
-                                            error_types["TimeoutError"] = error_types.get("TimeoutError", 0) + 1
-                                            stderr.append(f"[tool error] {tool} {message}")
-                            elif isinstance(event, AgentRunResultEvent):
-                                final_output = str(event.result.output)
-                                usage = event.result.usage
-                                usage_data.update({
-                                    "requests": usage.requests,
-                                    "input_tokens": usage.input_tokens,
-                                    "output_tokens": usage.output_tokens,
-                                    "cache_read_tokens": usage.cache_read_tokens,
-                                    "cache_write_tokens": usage.cache_write_tokens,
-                                })
-                        if events.result is not None:
-                            final_output = str(events.result.output)
+                async with events_context as events:
+                    iterator = events.__aiter__()
+                    while True:
+                        try:
+                            event = await asyncio.wait_for(anext(iterator), timeout=stall_timeout)
+                        except StopAsyncIteration:
+                            break
+                        except TimeoutError as exc:
+                            raise TimeoutError(f"model stream stalled for {stall_timeout:g}s") from exc
+                        if isinstance(event, PartStartEvent) and isinstance(event.part, TextPart):
+                            text_parts[event.index] = event.part.content
+                        elif isinstance(event, PartDeltaEvent):
+                            delta = getattr(event.delta, "content_delta", None)
+                            if isinstance(delta, str):
+                                text_parts[event.index] = text_parts.get(event.index, "") + delta
+                        elif isinstance(event, FunctionToolCallEvent):
+                            part = event.part
+                            calls += 1
+                            add_tool_call(stderr, part.tool_name, part.args)
+                        elif isinstance(event, FunctionToolResultEvent):
+                            part = event.part
+                            tool = part.tool_name
+                            if isinstance(part, RetryPromptPart):
+                                message = str(part.content)
+                                errors += 1
+                                error_types[traceback_type(message)] = error_types.get(traceback_type(message), 0) + 1
+                                stderr.append(f"[tool error] {tool} {message}")
+                            elif isinstance(part, ToolReturnPart):
+                                content = part.content
+                                add_tool_result(stderr, tool, content)
+                                if tool == "run_command":
+                                    content_text = str(content)
+                                    match = re.search(r"\[exit code: (\d+)\]", content_text)
+                                    if match and int(match.group(1)) != 0:
+                                        # Classify by the Python exception in the output,
+                                        # like run_code errors.
+                                        kind = traceback_type(content_text)
+                                        if kind == "other":
+                                            kind = "RuntimeError"
+                                        message = f"{kind}: command exited with status {match.group(1)}"
+                                        errors += 1
+                                        error_types[kind] = error_types.get(kind, 0) + 1
+                                        stderr.append(f"[tool error] {tool} {message}")
+                                    if "[Command timed out" in content_text:
+                                        message = "TimeoutError: command timed out"
+                                        errors += 1
+                                        error_types["TimeoutError"] = error_types.get("TimeoutError", 0) + 1
+                                        stderr.append(f"[tool error] {tool} {message}")
+                        elif isinstance(event, AgentRunResultEvent):
+                            final_output = str(event.result.output)
+                            usage = event.result.usage
+                            usage_data.update({
+                                "requests": usage.requests,
+                                "input_tokens": usage.input_tokens,
+                                "output_tokens": usage.output_tokens,
+                                "cache_read_tokens": usage.cache_read_tokens,
+                                "cache_write_tokens": usage.cache_write_tokens,
+                            })
+                    if events.result is not None:
+                        final_output = str(events.result.output)
         finally:
             if temp_context is not None:
                 temp_context.cleanup()
 
     try:
         async with semaphore:
+            # Time the case from when it gets a job slot, as monty_codegen.sh does.
+            started = time.monotonic()
             await asyncio.wait_for(run(), timeout=case_timeout)
     except BaseException as exc:
         failure = error_message(exc)
         stderr.append(f"[runner error] {failure}")
         if not final_output:
             final_output = "".join(text_parts[index] for index in sorted(text_parts))
-    elapsed = time.monotonic() - started
+    elapsed = time.monotonic() - started if started is not None else 0.0
     if failure:
         final_output = final_output or ""
     usage_line = (
@@ -505,7 +510,7 @@ async def execute_case(
     type_summary = ",".join(f"{key}×{count}" for key, count in sorted(error_types.items())) or "-"
     result = {
         "name": name, "status": status, "calls": calls, "errors": errors,
-        "secs": f"{elapsed:.3f}", "error_types": type_summary, "answer": answer,
+        "secs": str(int(elapsed)), "error_types": type_summary, "answer": answer,
     }
     (outdir / f"{name}.result").write_text(
         "\t".join(str(result[key]) for key in ("name", "status", "calls", "errors", "secs", "error_types", "answer")) + "\n",
@@ -548,7 +553,7 @@ async def main_async(args: argparse.Namespace) -> int:
     print(f"{'CASE':<15} {'STATUS':<6} {'CALLS':>5} {'ERRORS':>6} {'SECS':>5}  {'ERROR TYPES':<28} ANSWER")
     passed = calls = errors = 0
     for result in results:
-        print(f"{result['name']:<15} {result['status']:<6} {result['calls']:>5} {result['errors']:>6} {float(result['secs']):>5.0f}  {result['error_types']:<28} {result['answer'][:50]}")
+        print(f"{result['name']:<15} {result['status']:<6} {result['calls']:>5} {result['errors']:>6} {result['secs']:>5}  {result['error_types']:<28} {result['answer'][:50]}")
         passed += result["status"] == "PASS"
         calls += result["calls"]
         errors += result["errors"]

@@ -169,6 +169,28 @@ name substring. The cases live in [`monty_cases.json`](monty_cases.json), which
 both runners share; pass `-c file.json` to select another case set. Relative
 paths are resolved from the repository root. The shell runner requires `jq`.
 
+That default suite is a compatibility stress test, not an interpreter-speed
+benchmark. For ordinary Code Mode work that stays within the Python subset
+shared by Monty and CPython, use
+[`monty_representative_cases.json`](monty_representative_cases.json). Its 14
+cases cover aggregation, joins, rolling windows, text and regex processing,
+interval merging, graph traversal, dynamic programming, JSON/base64,
+combinations, matrix work and multi-key sorting:
+
+```console
+./monty_codegen.sh -c monty_representative_cases.json \
+  -m openrouter:z-ai/glm-5.3-flash
+
+uv run --project pyrunner pyrunner/monty_codegen.py \
+  -c monty_representative_cases.json \
+  -m openrouter:z-ai/glm-5.3-flash -b monty-sparktea
+```
+
+This suite measures end-to-end agent behavior: success, retries, model tokens,
+cost and elapsed time. To compare interpreter execution speed, use the
+`monty.run` and `python.run` spans rather than the case duration, which is
+dominated by model generation.
+
 ### Python pydantic-ai runner
 
 [`pyrunner/monty_codegen.py`](pyrunner/monty_codegen.py) runs the same cases

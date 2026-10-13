@@ -1,0 +1,79 @@
+{
+  "_comment": "Representative Code Mode workloads that have short, idiomatic solutions in the Python subset shared by Monty 1.1.0 and CPython. Unlike monty_cases.json, these do not intentionally request unsupported Monty features.",
+  "suffixes": {
+    "run_code": " Use the run_code tool to compute it. End your reply with one line of the form \"ANSWER: <value>\", writing numbers without thousands separators unless asked otherwise.",
+    "shell": " Use the run_command tool to run Python 3 (python3) to compute it. End your reply with one line of the form \"ANSWER: <value>\", writing numbers without thousands separators unless asked otherwise."
+  },
+  "cases": [
+    {
+      "name": "sales_rollup",
+      "expected": "west:128.5",
+      "prompt": "Given these sales rows (region, units, unit_price): [(\"east\", 3, 12.5), (\"west\", 4, 15), (\"north\", 10, 6.25), (\"east\", 2, 8), (\"west\", 5, 9.5), (\"west\", 1, 21)], compute revenue per region and return the region with the greatest revenue and that revenue. Format the ANSWER value as region:number plain text, without braces, quotes, or spaces."
+    },
+    {
+      "name": "error_latency",
+      "expected": "worker:600",
+      "prompt": "Each row below is (service, level, latency_ms): [(\"api\", \"ERROR\", 420), (\"worker\", \"ERROR\", 900), (\"api\", \"INFO\", 80), (\"auth\", \"ERROR\", 250), (\"worker\", \"ERROR\", 300), (\"api\", \"ERROR\", 380), (\"auth\", \"INFO\", 40)]. Considering only ERROR rows, compute each service's average latency and return the service with the highest average and its integer average as service:value."
+    },
+    {
+      "name": "rolling_window",
+      "expected": "65",
+      "prompt": "For the measurements [14, 7, 9, 20, 18, 11, 6, 17, 25, 13, 8, 19], compute the sum of every consecutive 4-value window. What is the largest window sum?"
+    },
+    {
+      "name": "word_frequency",
+      "expected": "birds:3, blue:3, green:2",
+      "prompt": "Lowercase this text and extract alphabetic words: \"Blue birds fly over blue water; green birds rest by the water. Blue skies, green fields, and birds everywhere.\" Ignore the words the, and, by, and over. Return the three most frequent remaining words as word:count, ordered by count descending and then word ascending, comma-separated."
+    },
+    {
+      "name": "interval_merge",
+      "expected": "55",
+      "prompt": "The half-open time intervals [(5, 18), (12, 25), (30, 41), (39, 50), (55, 60), (58, 70)] may overlap. Merge all overlaps and compute the total number of covered time units."
+    },
+    {
+      "name": "inventory_reorder",
+      "expected": "38.7",
+      "prompt": "Stock rows are (sku, quantity_on_hand, reorder_target): [(\"A17\", 4, 10), (\"B04\", 18, 12), (\"C22\", 0, 8), (\"D09\", 6, 6)]. Unit costs are {\"A17\": 3.25, \"B04\": 7.5, \"C22\": 2.4, \"D09\": 11.0}. Order enough of each SKU below target to reach its target. What is the total reorder cost?"
+    },
+    {
+      "name": "grid_path",
+      "expected": "10",
+      "prompt": "In this grid, 0 is open and 1 is blocked: [[0,0,1,0,0,0],[1,0,1,0,1,0],[0,0,0,0,1,0],[0,1,1,0,0,0],[0,0,0,1,1,0],[1,1,0,0,0,0]]. Starting at the top-left cell, find the minimum number of up/down/left/right steps needed to reach the bottom-right cell without entering blocked cells."
+    },
+    {
+      "name": "coin_change",
+      "expected": "24",
+      "prompt": "Using unlimited coins with values [1, 5, 10, 25], how many distinct combinations make a total of 37? Coin order does not distinguish combinations."
+    },
+    {
+      "name": "shipment_json",
+      "expected": "east:119, west:102",
+      "prompt": "Parse this JSON and compute total shipped weight per warehouse by summing weight * count for every box group: {\"shipments\":[{\"warehouse\":\"east\",\"boxes\":[{\"weight\":12.5,\"count\":4},{\"weight\":8,\"count\":3}]},{\"warehouse\":\"west\",\"boxes\":[{\"weight\":10,\"count\":5},{\"weight\":6.5,\"count\":8}]},{\"warehouse\":\"east\",\"boxes\":[{\"weight\":4.5,\"count\":10}]}]}. Return warehouse:weight pairs ordered by warehouse, comma-separated, and format whole-number totals without a trailing .0."
+    },
+    {
+      "name": "regex_job_ids",
+      "expected": "2333",
+      "prompt": "From the text \"ok JOB-1042; retry JOB-0091; ignore job-77; done JOB-1200; duplicate JOB-0091; malformed JOB-12X4\", extract uppercase JOB IDs consisting of exactly four digits. Deduplicate them by numeric ID and return their sum."
+    },
+    {
+      "name": "target_combinations",
+      "expected": "12",
+      "prompt": "From [3, 5, 7, 9, 11, 13, 15, 17, 19], how many distinct 4-element combinations sum to 44?"
+    },
+    {
+      "name": "matrix_checksum",
+      "expected": "1428",
+      "prompt": "Multiply the 4x4 matrices A=[[2,1,3,0],[0,4,1,2],[5,2,0,1],[1,3,2,4]] and B=[[1,2,0,3],[4,1,2,0],[2,3,1,1],[0,2,4,2]]. For product C, compute the checksum sum((row_index+1)*(column_index+1)*C[row_index][column_index]) over every cell."
+    },
+    {
+      "name": "base64_orders",
+      "expected": "40",
+      "prompt": "Base64-decode this UTF-8 JSON string, parse it, and sum amount for orders whose status is paid: eyJvcmRlcnMiOlt7InN0YXR1cyI6InBhaWQiLCJhbW91bnQiOjE5Ljk1fSx7InN0YXR1cyI6InZvaWQiLCJhbW91bnQiOjEwMH0seyJzdGF0dXMiOiJwYWlkIiwiYW1vdW50Ijo3LjV9LHsic3RhdHVzIjoicGFpZCIsImFtb3VudCI6MTIuNTV9XX0="
+    },
+    {
+      "name": "ranking_tiebreak",
+      "expected": "dee, bo, cy, ana, eli",
+      "prompt": "Rank these records (name, score, completion_minutes) by score descending, then completion time ascending, then name ascending: [(\"ana\",88,12),(\"bo\",91,15),(\"cy\",88,9),(\"dee\",91,11),(\"eli\",84,20)]. Return the names in rank order, comma-separated."
+    }
+  ]
+}
