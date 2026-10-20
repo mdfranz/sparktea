@@ -257,7 +257,7 @@ func newChatModel(option modelOption, width, height int) (*chatModel, tea.Cmd) {
 	// CursorLine — any further empty rows below it (minInputHeight=2 means
 	// there's always at least one) fall back to FocusedStyle.Placeholder,
 	// which has the same no-background gap as Text above.
-	if bg := ta.FocusedStyle.CursorLine.GetBackground(); bg != nil {
+	if bg := ta.FocusedStyle.CursorLine.GetBackground(); bg != (lipgloss.NoColor{}) {
 		ta.FocusedStyle.Text = ta.FocusedStyle.Text.Background(bg)
 		ta.FocusedStyle.Placeholder = ta.FocusedStyle.Placeholder.Background(bg)
 		ta.FocusedStyle.EndOfBuffer = ta.FocusedStyle.EndOfBuffer.Background(bg)
@@ -523,7 +523,7 @@ func (m *chatModel) View() string {
 	// rather than a separate purple-highlighted title.
 	headerBg := m.input.FocusedStyle.CursorLine.GetBackground()
 	header := headerStyle.Render(title)
-	if headerBg != nil {
+	if headerBg != (lipgloss.NoColor{}) {
 		header = headerStyle.Background(headerBg).Width(m.width).Render(title)
 	}
 
@@ -551,7 +551,7 @@ func (m *chatModel) View() string {
 	// together they make the input box read as one solid background band
 	// full width and full height, not just the cursor's own row.
 	inputView := m.input.View()
-	if headerBg != nil {
+	if headerBg != (lipgloss.NoColor{}) {
 		inputView = padInputBackground(inputView, m.width, headerBg)
 	}
 
@@ -1191,7 +1191,7 @@ func (m *chatModel) startStreamWithWebFetch(prompt string, webFetch bool) tea.Cm
 			ch <- streamErrMsg{err: err}
 			return
 		}
-		defer run.Close()
+		defer func() { _ = run.Close() }()
 		for event, err := range run.Events() {
 			watchdog.reset()
 			if err != nil {
@@ -1216,9 +1216,10 @@ func (m *chatModel) startStreamWithWebFetch(prompt string, webFetch bool) tea.Cm
 				case ai.NativeToolCallPart:
 					ch <- streamNoteMsg("🔎 " + part.ToolName)
 				case ai.ToolCallPart:
-					if part.ToolName == codemode.ToolName {
+					switch part.ToolName {
+					case codemode.ToolName:
 						ch <- streamNoteMsg("🐍 " + part.ToolName)
-					} else if part.ToolName == "web_fetch" {
+					case "web_fetch":
 						ch <- streamNoteMsg("🌐 " + part.ToolName)
 					}
 				}

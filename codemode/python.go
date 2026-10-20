@@ -89,7 +89,7 @@ func (c *CodeMode) handleRunPython(ctx context.Context, rawArgs json.RawMessage)
 	if err != nil {
 		return nil, fmt.Errorf("codemode: scratch directory: %w", err)
 	}
-	defer os.RemoveAll(dir)
+	defer func() { _ = os.RemoveAll(dir) }()
 	if err := os.WriteFile(filepath.Join(dir, pythonScript), []byte(args.Code), 0o600); err != nil {
 		return nil, fmt.Errorf("codemode: write script: %w", err)
 	}

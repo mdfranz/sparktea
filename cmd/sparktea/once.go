@@ -181,7 +181,7 @@ func runTurn(
 		logLocalError("turn_failed", err, "mode", mode, "provider", string(option.provider), "model", option.modelID)
 		return history, err
 	}
-	defer run.Close()
+	defer func() { _ = run.Close() }()
 	for event, err := range run.Events() {
 		watchdog.reset()
 		if err != nil {

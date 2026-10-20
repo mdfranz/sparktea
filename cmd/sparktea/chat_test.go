@@ -1,6 +1,7 @@
 package main
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -185,7 +186,7 @@ func TestCollectWebSearchSources(t *testing.T) {
 	})
 
 	t.Run("Google NativeToolReturnPart", func(t *testing.T) {
-		after := append(before, ai.ModelResponse{
+		after := append(slices.Clone(before), ai.ModelResponse{
 			Parts: []ai.ResponsePart{
 				ai.NativeToolReturnPart{
 					ToolName: "web_search", ToolKind: ai.ToolPartKindWebSearch,
@@ -200,7 +201,7 @@ func TestCollectWebSearchSources(t *testing.T) {
 	})
 
 	t.Run("OpenRouter annotations, deduplicated", func(t *testing.T) {
-		after := append(before, ai.ModelResponse{
+		after := append(slices.Clone(before), ai.ModelResponse{
 			ProviderDetails: map[string]any{
 				"annotations": []map[string]any{
 					{"url_citation": map[string]any{"url": "https://example.com/b", "title": "Example B"}},
@@ -215,7 +216,7 @@ func TestCollectWebSearchSources(t *testing.T) {
 	})
 
 	t.Run("no search results", func(t *testing.T) {
-		after := append(before, ai.ModelResponse{Parts: []ai.ResponsePart{ai.TextPart{Content: "hello"}}})
+		after := append(slices.Clone(before), ai.ModelResponse{Parts: []ai.ResponsePart{ai.TextPart{Content: "hello"}}})
 		if got := collectWebSearchSources(before, after); got != "" {
 			t.Errorf("a turn with no search results should yield no sources, got %q", got)
 		}
@@ -229,28 +230,28 @@ func TestHasWebFetchResult(t *testing.T) {
 		t.Error("unchanged history should not contain a newly fetched page")
 	}
 
-	local := append(before, ai.ModelRequest{Parts: []ai.RequestPart{
+	local := append(slices.Clone(before), ai.ModelRequest{Parts: []ai.RequestPart{
 		ai.ToolReturnPart{ToolName: "web_fetch", Content: ai.WebFetchResult{URL: "https://example.com"}},
 	}})
 	if !hasWebFetchResult(before, local) {
 		t.Error("local web-fetch return was not detected")
 	}
 
-	native := append(before, ai.ModelResponse{Parts: []ai.ResponsePart{
+	native := append(slices.Clone(before), ai.ModelResponse{Parts: []ai.ResponsePart{
 		ai.NativeToolReturnPart{ToolName: "web_fetch", ToolKind: ai.ToolPartKindWebFetch},
 	}})
 	if !hasWebFetchResult(before, native) {
 		t.Error("native web-fetch return was not detected")
 	}
 
-	other := append(before, ai.ModelRequest{Parts: []ai.RequestPart{
+	other := append(slices.Clone(before), ai.ModelRequest{Parts: []ai.RequestPart{
 		ai.ToolReturnPart{ToolName: "other"},
 	}})
 	if hasWebFetchResult(before, other) {
 		t.Error("unrelated tool return was reported as a fetch")
 	}
 
-	failed := append(before, ai.ModelRequest{Parts: []ai.RequestPart{
+	failed := append(slices.Clone(before), ai.ModelRequest{Parts: []ai.RequestPart{
 		ai.ToolReturnPart{ToolName: "web_fetch", Outcome: ai.ToolReturnOutcomeFailed},
 	}})
 	if hasWebFetchResult(before, failed) {

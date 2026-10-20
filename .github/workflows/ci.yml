@@ -1,0 +1,58 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Go Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - run: go mod download
+      - run: go vet ./...
+      - run: go test -race ./...
+      - name: CLI smoke test (offline)
+        env:
+          SPARKTEA_TEST_LIVE: "0"
+        run: ./test_sparktea.sh
+      - name: Verify clean working tree
+        run: git diff --exit-code
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: golangci/golangci-lint-action@v7
+        with:
+          version: v2.15.0
+          skip-cache: true
+
+  pyrunner:
+    name: Python Runner
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv run --project pyrunner python -m py_compile pyrunner/monty_codegen.py
+      - run: uv run --project pyrunner pyrunner/monty_codegen.py -l
+      - run: uv run --project pyrunner pyrunner/monty_codegen.py -c monty_representative_cases.json -l

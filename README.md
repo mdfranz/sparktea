@@ -96,6 +96,12 @@ make clean    # removes ./sparktea
 
 `make install` expects `~/.local/bin` to be on your `PATH`.
 
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs `go vet ./...`,
+`go test -race ./...`, the offline CLI smoke test
+(`SPARKTEA_TEST_LIVE=0 ./test_sparktea.sh`), `golangci-lint` (configured in
+[`.golangci.yml`](.golangci.yml)), and `pyrunner` syntax and case-loading
+checks on pushes to `main` and pull requests.
+
 ## Usage
 
 - `↑`/`↓` (or `j`/`k`) to move through the model list, `enter` to select.
