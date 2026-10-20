@@ -18,7 +18,7 @@ backends, see
 Versions:
 - pydantic-ai-go v0.6.0
 - gomonty v0.0.18 (Monty v1.0.1)
-- CPython: whatever `python3` is on `PATH` (3.11.2 in the benchmarks)
+- CPython: `python3.14` (or `python3` >= 3.14) on `PATH`
 
 ## Overview
 

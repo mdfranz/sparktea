@@ -240,9 +240,9 @@ summary table as `monty_codegen.sh`, so the same analysis works on both. Its
 | `shell` | Upstream Shell alternative | LocalWorkspace scratch directory only; it isolates nothing |
 | `shell-bwrap` | Upstream Shell alternative | Bubblewrap blocks writes outside scratch and network; host files remain readable |
 
-The runner needs `uv` to resolve and install its pinned dependencies; the
-shell runner needs `jq`. `shell-bwrap` also needs `bwrap` and working
-unprivileged user namespaces.
+The runner needs `uv` (with Python >= 3.14) to resolve and install its pinned
+dependencies; the shell runner needs `jq`. `shell-bwrap` also needs `bwrap` and
+working unprivileged user namespaces.
 
 ### Claude 5.5 Monty benchmark
 
@@ -500,7 +500,8 @@ code — without a broken-code loop running forever.
 ### Local CPython backend
 
 `-code-backend cpython` (with `-prompt` or `-script`) keeps the same
-`run_code` tool but runs the script in local CPython through pydantic-ai-go's
+`run_code` tool but runs the script in local CPython (>= 3.14; prefers
+`python3.14` on `PATH`, falling back to `python3`) through pydantic-ai-go's
 local workspace (`ai.NewLocalWorkspaceBackend`). It exists to measure what
 Monty's limits cost: the same tasks with the full language and standard
 library. See `codemode/python.go`.

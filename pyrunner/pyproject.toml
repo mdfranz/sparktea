@@ -2,7 +2,7 @@
 name = "sparktea-pyrunner"
 version = "0.1.0"
 description = "Python pydantic-ai comparison runner for sparktea Code Mode"
-requires-python = ">=3.11"
+requires-python = ">=3.14"
 dependencies = [
     "logfire==5.1.0",
     "pydantic-ai==2.55.0",

@@ -8,6 +8,10 @@ import sys
 import time
 import traceback
 
+if sys.version_info < (3, 14):
+    sys.stderr.write(f"CPython >= 3.14 required, got {sys.version.split()[0]}\n")
+    sys.exit(2)
+
 SCRIPT = "run_code.py"
 
 limit = int(os.environ.get("SPARKTEA_MAX_MEMORY", "0"))
