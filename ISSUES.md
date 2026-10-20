@@ -2,8 +2,9 @@
 
 Tracking known bugs in dependencies that affect sparktea but are fixed
 upstream, not here. Update the status line when an issue closes, and check
-whether sparktea still needs to work around it. All four issues below are
-fixed in pydantic-ai-go v0.4.0 (2026-09-14), which sparktea now uses. The
+whether sparktea still needs to work around it. All four issues below have
+upstream fixes in pydantic-ai-go v0.4.0 (2026-09-14); sparktea now uses
+v0.6.0. The
 last section is not an upstream bug: it records a sparktea usage problem
 found while investigating what first looked like one.
 
@@ -111,7 +112,7 @@ Confirmed via Logfire traces.
 
 ### [#4](https://github.com/Kludex/pydantic-ai-go/issues/4) — OpenAI Responses stream: `response.web_search_call.*` progress events not recognized, crashes the run
 
-**Status: closed upstream 2026-09-14 by [PR #20](https://github.com/Kludex/pydantic-ai-go/pull/20) (v0.4.0 release). Not yet re-verified in sparktea; `/search` is still disabled for OpenAI.**
+**Status: closed upstream 2026-09-14 by [PR #20](https://github.com/Kludex/pydantic-ai-go/pull/20) (v0.4.0 release). The v0.6.0 parser explicitly handles the web-search progress events. Still not re-verified live in sparktea; `/search` remains disabled for OpenAI until that check.**
 
 `responses_stream.go:714-731`'s event-type switch hardcodes an allowlist of
 provider progress events safe to ignore per tool family —

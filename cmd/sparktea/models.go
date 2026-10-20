@@ -123,11 +123,9 @@ func (m modelOption) newModel() ai.Model {
 // effect when SupportsNativeTool exists to be consulted.
 //
 // OpenAI is excluded too, despite openai.ResponsesModel implementing the
-// interface: pydantic-ai-go's Responses stream parser doesn't recognize the
-// response.web_search_call.* progress events OpenAI actually streams back,
-// so a real web search call crashes the turn outright rather than degrading
-// — confirmed live via Logfire 2026-09-05, filed as
-// github.com/Kludex/pydantic-ai-go#4. Re-enable once that's fixed upstream.
+// interface: the upstream Responses stream parser fix for
+// response.web_search_call.* progress events is present in v0.6.0, but has
+// not yet been verified live in sparktea. Keep it disabled until that check.
 func (m modelOption) supportsNativeWebSearch() bool {
 	switch m.provider {
 	case providerOpenRouter, providerGoogle, providerAnthropic:
