@@ -454,6 +454,10 @@ subprocess, a few milliseconds to start.
 
 The bundled runtime is gomonty v0.1.0, based on Monty v1.2.0.
 
+With Code Mode on, OpenAI requires a `run_code` call on the first model request
+of each turn. With the Monty backend, other providers receive an instruction
+to call it before answering; some routed models reject a forced tool choice.
+
 The top line shows the linked gomonty version and its embedded Monty release,
 alongside the selected model. Development pseudo-versions use a short commit
 hash so the header stays compact.

@@ -1162,6 +1162,9 @@ func (m *chatModel) startStreamWithWebFetch(prompt string, webFetch bool) tea.Cm
 	}
 	if m.codeEnabled {
 		runOpts = append(runOpts, ai.WithRunCapabilities(m.codeModeCapability))
+		if required, ok := requireCodeTool(option); ok {
+			runOpts = append(runOpts, required)
+		}
 	}
 	if webFetch {
 		// The capability pairs a provider-native fetch with a local fallback.

@@ -133,6 +133,9 @@ func runOnce(ctx context.Context, option modelOption, opts cliOptions) error {
 		runOpts = append(runOpts, ai.WithRunCapabilities(
 			codemode.New(codemode.WithTelemetryContent(logfireSendContent()), codemode.WithBackend(opts.codeBackend)),
 		))
+		if required, ok := requireCodeTool(option); ok {
+			runOpts = append(runOpts, required)
+		}
 	}
 	searchEnabled := opts.search && option.supportsNativeWebSearch()
 	if opts.search && !searchEnabled {
