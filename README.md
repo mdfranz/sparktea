@@ -53,6 +53,7 @@ export GEMINI_API_KEY="..."   # or GOOGLE_API_KEY
 export ANTHROPIC_API_KEY="sk-ant-..."
 export MISTRAL_API_KEY="..."
 export OPENAI_API_KEY="sk-..."
+export PYDANTIC_AI_GATEWAY_API_KEY="pylf_v1_us_..."   # optional, see below
 go run ./cmd/sparktea
 ```
 
@@ -62,6 +63,31 @@ Keys:
 - `ANTHROPIC_API_KEY` — required for direct Anthropic (Claude) models.
 - `MISTRAL_API_KEY` — required for Mistral models.
 - `OPENAI_API_KEY` — required for direct OpenAI (GPT) models.
+- `PYDANTIC_AI_GATEWAY_API_KEY` (or `PAIG_API_KEY`) — routes the OpenAI and
+  Anthropic models through the Pydantic AI (Logfire) Gateway instead.
+
+### Pydantic AI Gateway
+
+When `PYDANTIC_AI_GATEWAY_API_KEY` is set, the OpenAI and Anthropic entries
+in the model picker go through the gateway. It takes precedence over
+`OPENAI_API_KEY` and `ANTHROPIC_API_KEY`, and the other providers are
+unchanged.
+
+- The gateway host comes from the region in the key (`pylf_v1_us_...` uses
+  `https://gateway-us.pydantic.dev/proxy`). Set
+  `PYDANTIC_AI_GATEWAY_BASE_URL` (or `PAIG_BASE_URL`) to override it, which is
+  required if the key does not follow that format.
+- OpenAI uses the `openai` route (Responses API) and Anthropic the
+  `anthropic` route, authenticated with a bearer token.
+- Each request carries a W3C `traceparent` header, so gateway spans join
+  sparktea's Logfire trace when `LOGFIRE_TOKEN` is set.
+- The provider name stays `openai`, so `/save` sessions load the same with or
+  without the gateway.
+
+The implementation is in `cmd/sparktea/gateway.go` and needs no pydantic-ai-go
+changes. It mirrors pydantic-ai's `providers/gateway.py`, and only the OpenAI
+and Anthropic routes are covered. Gemini (the gateway's `google-vertex`
+route), Groq, and Bedrock are not. It has not been run against a live gateway.
 
 sparktea disables pydantic-ai-go's first-run stderr banner so it doesn't
 draw over the TUI or script output.

@@ -75,11 +75,11 @@ func (m modelOption) apiKeyPresent() bool {
 	case providerGoogle:
 		return os.Getenv("GOOGLE_API_KEY") != "" || os.Getenv("GEMINI_API_KEY") != ""
 	case providerAnthropic:
-		return os.Getenv("ANTHROPIC_API_KEY") != ""
+		return os.Getenv("ANTHROPIC_API_KEY") != "" || gatewayActive()
 	case providerMistral:
 		return os.Getenv("MISTRAL_API_KEY") != ""
 	case providerOpenAI:
-		return os.Getenv("OPENAI_API_KEY") != ""
+		return os.Getenv("OPENAI_API_KEY") != "" || gatewayActive()
 	default:
 		return false
 	}
@@ -100,6 +100,13 @@ func (m modelOption) newModel() ai.Model {
 	case providerGoogle:
 		return google.NewModel(m.modelID)
 	case providerAnthropic:
+		if key := gatewayAPIKey(); key != "" && gatewayActive() {
+			// The adapter appends /messages to a base that already ends in /v1.
+			return anthropic.NewModel(m.modelID,
+				anthropic.WithAPIKey(key),
+				anthropic.WithBaseURL(gatewayRoute(gatewayBaseURL(key), "anthropic")+"/v1"),
+				anthropic.WithHTTPClient(gatewayHTTPClient(key)))
+		}
 		return anthropic.NewModel(m.modelID)
 	case providerMistral:
 		return mistral.NewModel(m.modelID)
@@ -109,6 +116,16 @@ func (m modelOption) newModel() ai.Model {
 		// do), while Responses grants it unconditionally for every model —
 		// see pydantic-ai-go's docs/native-tools.md. Responses is also what
 		// upstream's own docs use for the gpt-5.6 family specifically.
+		if key := gatewayAPIKey(); key != "" && gatewayActive() {
+			// Keep the provider name "openai" so saved history replays the
+			// same with or without the gateway.
+			return openai.NewResponsesModel(m.modelID, openai.WithProvider(openai.ProviderConfig{
+				Name:       "openai",
+				BaseURL:    gatewayRoute(gatewayBaseURL(key), "openai"),
+				APIKey:     key,
+				HTTPClient: gatewayHTTPClient(key),
+			}))
+		}
 		return openai.NewResponsesModel(m.modelID)
 	default:
 		panic("sparktea: unknown provider " + string(m.provider))
