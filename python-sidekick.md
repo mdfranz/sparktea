@@ -18,7 +18,7 @@ There are two comparisons:
 Python side, as checked against the `v2.55.0` tag of `pydantic/pydantic-ai`:
 
 - **Packages:** `pydantic-ai` 2.55.0 plus `pydantic-ai-harness` 0.55.0. The harness is a workspace member of the pydantic-ai repo (`src/pydantic_ai_harness/`), published as a separate PyPI package and released in lockstep: harness 0.55.0 pins `pydantic-ai-slim==2.55.0`.
-- **`CodeMode`** (`pydantic-ai-harness[codemode]`, `pydantic-monty` 1.1.0, which is Monty v1.1.0; sparktea has v1.0.1):
+- **`CodeMode`** (`pydantic-ai-harness[codemode]`, `pydantic-monty` 1.1.0, which is Monty v1.1.0; sparktea has v1.2.0):
   - the `run_code` tool takes `code` and `restart`, and REPL state persists between calls;
   - stock limits are 30 s, 256 MiB and 1,000 suspensions, with `max_retries=3`;
   - there's no recursion-limit setting;
@@ -147,7 +147,7 @@ Decisions:
   - running `pyrunner`, with prerequisites (`uv` and `jq`; `bwrap` with user namespaces for `shell-bwrap`);
   - a table of the five Python backends, marking the two matched configurations and the three upstream/alternative configurations, with an isolation note for each.
 - **`CODE-MODE.md`:** a "Python pydantic-ai comparison" section covering:
-  - harness `CodeMode` against sparktea's Monty backend: limits, retries, description, REPL state and `restart`, Monty v1.1.0 vs. v1.0.1;
+  - harness `CodeMode` against sparktea's Monty backend: limits, retries, description, REPL state and `restart`, Monty v1.1.0 vs. v1.2.0;
   - `LocalWorkspace` in both libraries;
   - the matched Python CPython tool against sparktea's CPython backend;
   - Shell and Bubblewrap having no direct pydantic-ai-go counterpart. A bwrap-wrapped `WorkspaceBackend` would be the Go equivalent, as a possible follow-up for sparktea's CPython backend.

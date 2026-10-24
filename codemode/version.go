@@ -11,7 +11,7 @@ const (
 	// MontyVersion is the upstream Monty release embedded in the pinned
 	// gomonty build. Update it whenever the gomonty dependency changes its
 	// Cargo.toml Monty revision.
-	MontyVersion = "v1.0.1"
+	MontyVersion = "v1.2.0"
 )
 
 // GomontyVersion returns the linked gomonty module version. Tagged versions

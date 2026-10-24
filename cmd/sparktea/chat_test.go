@@ -103,7 +103,7 @@ func TestHeaderShowsCodeRuntimeVersions(t *testing.T) {
 	m, _ := newChatModel(option, 120, 24)
 
 	got := ansi.Strip(m.View())
-	for _, want := range []string{"gomonty ", "monty v1.0.1"} {
+	for _, want := range []string{"gomonty ", "monty v1.2.0"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("header does not contain %q:\n%s", want, got)
 		}

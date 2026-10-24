@@ -452,6 +452,8 @@ interpreter written in Rust, via its Go bindings,
 [**gomonty**](https://github.com/mdfranz/gomonty) — no Docker, no
 subprocess, a few milliseconds to start.
 
+The bundled runtime is gomonty v0.1.0, based on Monty v1.2.0.
+
 The top line shows the linked gomonty version and its embedded Monty release,
 alongside the selected model. Development pseudo-versions use a short commit
 hash so the header stays compact.
@@ -486,7 +488,7 @@ modules like `statistics` and `hashlib` (see
 `codemode/run_code_description.txt` and `codemode/run_code_python_description.txt`,
 shared with the Python runner). It is off with code mode, so plain chats are unaffected.
 
-`codemode/codemode_test.go` covers the binding and a Monty v1.0.1 acceptance
+`codemode/codemode_test.go` covers the binding and a Monty v1.2.0 acceptance
 matrix for useful language and standard-library features. The matrix guards
 the embedded runtime against drifting behind the Go API during later upgrades.
 
