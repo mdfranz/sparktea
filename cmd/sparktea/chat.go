@@ -936,7 +936,7 @@ func (m *chatModel) switchModel(option modelOption) {
 	}
 	m.option = option
 	m.agent = newAgentFor(option)
-	logLocal(slog.LevelInfo, "model_switched", "provider", string(option.provider), "model", option.modelID)
+	logLocal(slog.LevelInfo, "model_switched", "provider", string(option.provider), "route", option.route(), "model", option.modelID)
 	m.note(fmt.Sprintf("— switched to %s —", option.label))
 }
 
@@ -1174,7 +1174,7 @@ func (m *chatModel) startStreamWithWebFetch(prompt string, webFetch bool) tea.Cm
 	}
 
 	go func() {
-		logLocal(slog.LevelInfo, "turn_started", "mode", "interactive", "provider", string(option.provider), "model", option.modelID, "web_search", searchEnabled, "web_fetch", webFetch, "code_mode", codeEnabled)
+		logLocal(slog.LevelInfo, "turn_started", "mode", "interactive", "provider", string(option.provider), "route", option.route(), "model", option.modelID, "web_search", searchEnabled, "web_fetch", webFetch, "code_mode", codeEnabled)
 		runTracer, runCtx := startRunTracer(ctx, "sparktea turn")
 		watchdog := newStallWatchdog(runCtx)
 		defer watchdog.stop()

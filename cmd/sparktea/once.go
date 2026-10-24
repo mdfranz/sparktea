@@ -163,7 +163,7 @@ func runTurn(
 	mode string, extraLogArgs ...any,
 ) ([]ai.ModelMessage, error) {
 	runOpts = append([]ai.RunOption{ai.WithMessageHistory(history)}, runOpts...)
-	startArgs := append([]any{"mode", mode, "provider", string(option.provider), "model", option.modelID}, extraLogArgs...)
+	startArgs := append([]any{"mode", mode, "provider", string(option.provider), "route", option.route(), "model", option.modelID}, extraLogArgs...)
 	logLocal(slog.LevelInfo, "turn_started", startArgs...)
 	runTracer, runCtx := startRunTracer(ctx, "sparktea turn")
 	runTracer.annotate(startArgs...)

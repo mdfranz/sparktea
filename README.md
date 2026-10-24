@@ -3,7 +3,8 @@
 A terminal chat UI, built with [bubbletea](https://github.com/charmbracelet/bubbletea),
 for talking to any model [**pydantic-ai-go**](https://github.com/Kludex/pydantic-ai-go)
 supports — currently OpenRouter, Google Gemini, Anthropic, Mistral, and
-OpenAI, with more just an import away.
+OpenAI, with more just an import away. OpenAI, Anthropic, and Gemini can also
+be routed through the [Pydantic AI Gateway](#pydantic-ai-gateway).
 
 Launch it, pick a model, and chat. Responses stream in token-by-token,
 thinking traces render when a model exposes them, and conversation history
@@ -63,9 +64,12 @@ Keys:
 - `ANTHROPIC_API_KEY` — required for direct Anthropic (Claude) models.
 - `MISTRAL_API_KEY` — required for Mistral models.
 - `OPENAI_API_KEY` — required for direct OpenAI (GPT) models.
-- `PYDANTIC_AI_GATEWAY_API_KEY` (or `PAIG_API_KEY`) — routes the OpenAI and
-  Anthropic and Gemini models through the Pydantic AI (Logfire) Gateway
+- `PYDANTIC_AI_GATEWAY_API_KEY` (or `PAIG_API_KEY`) — routes the OpenAI,
+  Anthropic, and Gemini models through the Pydantic AI (Logfire) Gateway
   instead.
+
+sparktea disables pydantic-ai-go's first-run stderr banner so it doesn't
+draw over the TUI or script output.
 
 ### Pydantic AI Gateway
 
@@ -90,11 +94,14 @@ Mistral are unchanged.
 
 The implementation is in `cmd/sparktea/gateway.go` and needs no pydantic-ai-go
 changes. It mirrors pydantic-ai's `providers/gateway.py`, and only the OpenAI,
-Anthropic, and Google routes are covered. Groq and Bedrock are not. It has
-not been run against a live gateway.
+Anthropic, and Google routes are covered. Groq and Bedrock are not. Gemini has
+been checked against a live gateway; the OpenAI and Anthropic routes have not.
 
-sparktea disables pydantic-ai-go's first-run stderr banner so it doesn't
-draw over the TUI or script output.
+The model picker marks routed entries, for example `google via pydantic gateway ·
+gemini-3.8-flash`, and the local log's `turn_started` and `model_switched`
+entries carry `"route":"gateway"` or `"route":"direct"`. On the Logfire side,
+gateway spans are reported under service `PAIG`, with the request URL
+(`.../proxy/google-vertex/...`) as an attribute.
 
 ### Stalled streams
 
@@ -392,8 +399,8 @@ one file per local calendar day. Log files and their directory are private to
 your user account (`0600` and `0700`, respectively) and are retained until
 you remove them.
 
-The logs record lifecycle events, selected provider/model, enabled modes,
-usage, tool names/outcomes, and error types. They never include prompts,
+The logs record lifecycle events, selected provider/model and route (`gateway`
+or `direct`), enabled modes, usage, tool names/outcomes, and error types. They never include prompts,
 responses, thinking, tool inputs/results, session identifiers, or credentials.
 For example, filter today's events with:
 
@@ -419,6 +426,12 @@ That's it — no other env vars needed. By default it targets Logfire's US
 region (`logfire-us.pydantic.dev`); set `LOGFIRE_ENDPOINT` for the EU region
 or a self-hosted collector. `OTEL_SERVICE_NAME` overrides the reported
 service name (default `sparktea`).
+
+When the [gateway](#pydantic-ai-gateway) is in use, it records its own span
+for each model request (service `PAIG`) in the same Logfire project,
+independent of `LOGFIRE_TOKEN`. sparktea sends a `traceparent` header so
+those spans can attach to sparktea's trace; without `LOGFIRE_TOKEN` they
+appear as root spans.
 
 Prompts, completions, tool inputs/results, and full request parameters are
 sent to Logfire by default so traces contain the context needed for debugging.
@@ -570,7 +583,9 @@ different upstream Monty version.
 
 The startup list is a static catalog in `models.go`. Add an entry there —
 `{label, provider, modelID}` — to offer another OpenRouter, Gemini,
-Anthropic, Mistral, or OpenAI model ID. `~`-prefixed OpenRouter IDs are
+Anthropic, Mistral, or OpenAI model ID. With a gateway key set, Gemini,
+Anthropic, and OpenAI entries are routed through the gateway automatically
+(`newModel()` in `models.go`). `~`-prefixed OpenRouter IDs are
 OpenRouter's alias syntax (e.g. `~deepseek/deepseek-v4-flash-latest` always
 redirects to the newest snapshot in that family).
 

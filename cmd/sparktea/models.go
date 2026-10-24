@@ -32,8 +32,32 @@ type modelOption struct {
 	modelID  string
 }
 
-func (m modelOption) Title() string       { return m.label }
-func (m modelOption) Description() string { return fmt.Sprintf("%s · %s", m.provider, m.modelID) }
+func (m modelOption) Title() string { return m.label }
+func (m modelOption) Description() string {
+	if m.usesGateway() {
+		return fmt.Sprintf("%s via pydantic gateway · %s", m.provider, m.modelID)
+	}
+	return fmt.Sprintf("%s · %s", m.provider, m.modelID)
+}
+
+// usesGateway reports whether this option's requests go through the Pydantic
+// AI Gateway. Only OpenAI, Anthropic, and Gemini are routed.
+func (m modelOption) usesGateway() bool {
+	switch m.provider {
+	case providerOpenAI, providerAnthropic, providerGoogle:
+		return gatewayActive()
+	default:
+		return false
+	}
+}
+
+// route names how requests reach the provider, for the local log.
+func (m modelOption) route() string {
+	if m.usesGateway() {
+		return "gateway"
+	}
+	return "direct"
+}
 func (m modelOption) FilterValue() string { return m.label }
 
 // modelCatalog lists the models offered at startup. Add entries here to
@@ -98,7 +122,7 @@ func (m modelOption) newModel() ai.Model {
 		settings, _ := openrouter.Settings{Usage: &openrouter.UsageConfig{Include: true}}.Build()
 		return openrouter.NewModel(m.modelID, openrouter.WithDefaultSettings(settings))
 	case providerGoogle:
-		if key := gatewayAPIKey(); key != "" && gatewayActive() {
+		if key := gatewayAPIKey(); m.usesGateway() {
 			// The gateway's google-vertex route speaks Vertex AI Express Mode.
 			provider, err := google.NewVertexProviderConfig(google.VertexConfig{
 				APIKey:     key,
@@ -112,7 +136,7 @@ func (m modelOption) newModel() ai.Model {
 		}
 		return google.NewModel(m.modelID)
 	case providerAnthropic:
-		if key := gatewayAPIKey(); key != "" && gatewayActive() {
+		if key := gatewayAPIKey(); m.usesGateway() {
 			// The adapter appends /messages to a base that already ends in /v1.
 			return anthropic.NewModel(m.modelID,
 				anthropic.WithAPIKey(key),
@@ -128,7 +152,7 @@ func (m modelOption) newModel() ai.Model {
 		// do), while Responses grants it unconditionally for every model —
 		// see pydantic-ai-go's docs/native-tools.md. Responses is also what
 		// upstream's own docs use for the gpt-5.6 family specifically.
-		if key := gatewayAPIKey(); key != "" && gatewayActive() {
+		if key := gatewayAPIKey(); m.usesGateway() {
 			// Keep the provider name "openai" so saved history replays the
 			// same with or without the gateway.
 			return openai.NewResponsesModel(m.modelID, openai.WithProvider(openai.ProviderConfig{

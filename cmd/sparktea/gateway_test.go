@@ -115,6 +115,16 @@ func TestGatewayModelRouting(t *testing.T) {
 	if !openaiOpt.apiKeyPresent() || !anthropicOpt.apiKeyPresent() {
 		t.Fatal("gateway key should enable OpenAI and Anthropic models")
 	}
+	if got := openaiOpt.Description(); got != "openai via pydantic gateway · gpt-5.6-sol" {
+		t.Fatalf("Description = %q", got)
+	}
+	if got := openaiOpt.route(); got != "gateway" {
+		t.Fatalf("route = %q", got)
+	}
+	or := modelOption{"DS", providerOpenRouter, "deepseek/deepseek-v4-pro"}
+	if or.usesGateway() || or.route() != "direct" || or.Description() != "openrouter · deepseek/deepseek-v4-pro" {
+		t.Fatalf("OpenRouter should never use the gateway: %q", or.Description())
+	}
 	type identity interface {
 		ProviderName() string
 		ProviderURL() string
