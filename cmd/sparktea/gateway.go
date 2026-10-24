@@ -41,6 +41,10 @@ func gatewayActive() bool {
 	return key != "" && gatewayBaseURL(key) != ""
 }
 
+// gatewayRoutes are the route segments sparktea knows. A base URL that already
+// ends in one (e.g. .../proxy/google-vertex) is trimmed back to the proxy root.
+var gatewayRoutes = []string{"openai", "anthropic", "google-vertex", "groq", "bedrock"}
+
 // gatewayBaseURL returns the gateway proxy root without a trailing slash. An
 // explicit base URL env var wins; otherwise the host comes from the region
 // encoded in the key. It returns "" when neither is available.
@@ -50,7 +54,11 @@ func gatewayBaseURL(key string) string {
 		base = os.Getenv(gatewayBaseEnvAlt)
 	}
 	if base != "" {
-		return strings.TrimRight(base, "/")
+		base = strings.TrimRight(base, "/")
+		for _, route := range gatewayRoutes {
+			base = strings.TrimSuffix(base, "/"+route)
+		}
+		return base
 	}
 	m := gatewayKeyPattern.FindStringSubmatch(key)
 	if m == nil {
@@ -77,8 +85,10 @@ type gatewayTransport struct {
 func (t gatewayTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	req = req.Clone(req.Context())
 	propagation.TraceContext{}.Inject(req.Context(), propagation.HeaderCarrier(req.Header))
-	// The Anthropic adapter sends x-api-key; the gateway wants a bearer token.
+	// The Anthropic and Google adapters send their own key headers; the
+	// gateway wants a bearer token.
 	req.Header.Del("x-api-key")
+	req.Header.Del("x-goog-api-key")
 	req.Header.Set("Authorization", "Bearer "+t.key)
 	return t.base.RoundTrip(req)
 }

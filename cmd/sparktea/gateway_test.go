@@ -25,6 +25,7 @@ func TestGatewayBaseURL(t *testing.T) {
 		{"eu region", "pylf_v2_eu_abc", "", "https://gateway-eu.pydantic.dev/proxy"},
 		{"staging", "pylf_v1_staging_abc", "", "https://gateway.pydantic.info/proxy"},
 		{"override trims slash", "pylf_v1_us_abc", "https://example.test/proxy/", "https://example.test/proxy"},
+		{"trims route", "pylf_v1_us_abc", "https://gateway-us.pydantic.dev/proxy/google-vertex", "https://gateway-us.pydantic.dev/proxy"},
 		{"unknown key shape", "sk-nope", "", ""},
 	}
 	for _, tt := range tests {
@@ -74,6 +75,7 @@ func TestGatewayTransportHeaders(t *testing.T) {
 		t.Fatal(err)
 	}
 	req.Header.Set("x-api-key", "should-be-removed")
+	req.Header.Set("x-goog-api-key", "should-be-removed")
 
 	resp, err := gatewayHTTPClient("pylf_v1_us_abc").Do(req)
 	if err != nil {
@@ -87,6 +89,9 @@ func TestGatewayTransportHeaders(t *testing.T) {
 	if v := got.Get("x-api-key"); v != "" {
 		t.Fatalf("x-api-key not removed: %q", v)
 	}
+	if v := got.Get("x-goog-api-key"); v != "" {
+		t.Fatalf("x-goog-api-key not removed: %q", v)
+	}
 	if v := got.Get("traceparent"); v == "" {
 		t.Fatal("traceparent not injected")
 	}
@@ -99,6 +104,8 @@ func TestGatewayModelRouting(t *testing.T) {
 	clearGatewayEnv(t)
 	t.Setenv("OPENAI_API_KEY", "")
 	t.Setenv("ANTHROPIC_API_KEY", "")
+	t.Setenv("GOOGLE_API_KEY", "")
+	t.Setenv("GEMINI_API_KEY", "")
 	openaiOpt := modelOption{"GPT", providerOpenAI, "gpt-5.6-sol"}
 	anthropicOpt := modelOption{"Claude", providerAnthropic, "claude-sonnet-5-5"}
 	if openaiOpt.apiKeyPresent() || anthropicOpt.apiKeyPresent() {
@@ -125,6 +132,13 @@ func TestGatewayModelRouting(t *testing.T) {
 	ant, ok := anthropicOpt.newModel().(identity)
 	if !ok {
 		t.Fatal("Anthropic model has no provider identity")
+	}
+	goog, ok := modelOption{"Gemini", providerGoogle, "gemini-3.8-flash"}.newModel().(identity)
+	if !ok {
+		t.Fatal("Google model has no provider identity")
+	}
+	if got := goog.ProviderURL(); got != "https://gateway-us.pydantic.dev/proxy/google-vertex/v1beta1/publishers/google" {
+		t.Fatalf("Google URL = %q", got)
 	}
 	if got := ant.ProviderURL(); got != "https://gateway-us.pydantic.dev/proxy/anthropic/v1" {
 		t.Fatalf("Anthropic URL = %q", got)

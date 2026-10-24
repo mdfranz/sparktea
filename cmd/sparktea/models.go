@@ -73,7 +73,7 @@ func (m modelOption) apiKeyPresent() bool {
 	case providerOpenRouter:
 		return os.Getenv("OPENROUTER_API_KEY") != ""
 	case providerGoogle:
-		return os.Getenv("GOOGLE_API_KEY") != "" || os.Getenv("GEMINI_API_KEY") != ""
+		return os.Getenv("GOOGLE_API_KEY") != "" || os.Getenv("GEMINI_API_KEY") != "" || gatewayActive()
 	case providerAnthropic:
 		return os.Getenv("ANTHROPIC_API_KEY") != "" || gatewayActive()
 	case providerMistral:
@@ -98,6 +98,18 @@ func (m modelOption) newModel() ai.Model {
 		settings, _ := openrouter.Settings{Usage: &openrouter.UsageConfig{Include: true}}.Build()
 		return openrouter.NewModel(m.modelID, openrouter.WithDefaultSettings(settings))
 	case providerGoogle:
+		if key := gatewayAPIKey(); key != "" && gatewayActive() {
+			// The gateway's google-vertex route speaks Vertex AI Express Mode.
+			provider, err := google.NewVertexProviderConfig(google.VertexConfig{
+				APIKey:     key,
+				Endpoint:   gatewayRoute(gatewayBaseURL(key), "google-vertex"),
+				HTTPClient: gatewayHTTPClient(key),
+			})
+			if err != nil {
+				panic("sparktea: gateway google config: " + err.Error())
+			}
+			return google.NewModel(m.modelID, google.WithProvider(provider))
+		}
 		return google.NewModel(m.modelID)
 	case providerAnthropic:
 		if key := gatewayAPIKey(); key != "" && gatewayActive() {
