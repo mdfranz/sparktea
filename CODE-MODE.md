@@ -183,16 +183,15 @@ Code: `codemode/codemode.go` and `codemode/flatten.go`.
 | neither | `{}` |
 
 **What the model is told:**
-- **Tool description:** about 2,200 characters, listing what Monty lacks:
-  - missing modules (`statistics`, `enum`, `hashlib`, `heapq` and others);
+- **Tool description:** lists what Monty lacks:
+  - missing modules (`statistics`, `enum`, `heapq` and others);
   - missing builtins;
-  - missing names in present modules, such as `dataclasses.field` and
+  - missing names in present modules, such as `dataclasses.fields` and
     `functools.lru_cache`;
-  - unsupported syntax: inheritance, decorators on methods, generators,
-    `match`;
+  - unsupported syntax: inheritance, decorators on methods, generators;
   - the exception-argument rule;
   - the 100-frame recursion limit.
-- **System instruction:** about 320 characters, added through
+- **System instruction:** added through
   `AddInstructions`. It names the features models most often try anyway.
 
 Every model request in a code-mode turn carries both, so they account for

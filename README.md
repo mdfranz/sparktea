@@ -174,9 +174,9 @@ one per provider, so it's the slowest and priciest check here.
 
 [`./monty_codegen.sh`](monty_codegen.sh) measures how well a model's generated Python runs on
 Monty. It sends 23 small tasks with known answers through `-code -prompt`.
-Most tasks are worded to tempt the model toward something Monty doesn't
-support (inheritance, generators, `match`, `enum`, `hashlib`, deep
-recursion; see Monty's
+Most tasks probe Monty compatibility, including inheritance, generators,
+`match`, `enum`, `hashlib`, and deep recursion. Monty v1.2.0 supports `match`
+and `hashlib`; see Monty's
 [limitations docs](https://github.com/pydantic/monty/tree/main/docs/limitations)).
 For each case it reports pass/fail, `run_code` calls, failed calls by error
 type, and the answer. Flags: `-m provider:model_id`, `-b cpython` to run the
@@ -465,15 +465,15 @@ Sandboxing guarantees:
 - Only part of the stdlib exists, each module covering a slice of CPython's
   surface: `sys`, `typing`, `math`, `json`, `re`, `unicodedata`, `datetime`,
   `pathlib`, `os`, `collections`, `itertools`, `functools`, `dataclasses`,
-  `asyncio`, `base64`, `binascii`, `copy`, `random`, and `time`. No
-  third-party imports. Notably **not** available: `statistics`, `enum`,
-  `hashlib`, `heapq`, `bisect`, `decimal`, `textwrap`, and anything
+  `asyncio`, `base64`, `binascii`, `copy`, `random`, `time`, `hashlib`, and
+  `bisect`. No third-party imports. Notably **not** available: `statistics`, `enum`,
+  `heapq`, `decimal`, `textwrap`, and anything
   network/process/thread-related (`urllib`, `socket`, `subprocess`,
   `threading`). Missing builtins include `dir`, `globals`, `vars`, `compile`,
-  `callable`, `complex`, and `input`; missing names in present modules include
-  `functools.lru_cache`, `dataclasses.field`/`fields`/`replace`, and
+  `callable` and `input`; missing names in present modules include
+  `functools.lru_cache`, `dataclasses.fields`/`replace`, and
   `asyncio.create_task`.
-- Also unsupported: class inheritance, generator functions/`yield`, `match`,
+- Also unsupported: class inheritance, generator functions/`yield`,
   `del`, `async with`/`async for`, and PEP 695 type aliases.
 - Built-in exceptions take zero or one string argument (`ValueError('msg')`;
   `ValueError(1)` or `ValueError('a', 'b')` fails with a misleadingly worded
@@ -482,8 +482,8 @@ Sandboxing guarantees:
   frames of recursion, so a runaway script can't stall the TUI.
 
 When `/code` is on, a short instruction is also added to the system prompt
-telling the model to avoid decorators, `match`, custom exception subclasses, and
-modules like `statistics` and `hashlib` (see
+telling the model to avoid method decorators, custom exception subclasses, and
+modules like `statistics` and `enum` (see
 `codemode/monty_instructions.txt`; the `run_code` descriptions are in
 `codemode/run_code_description.txt` and `codemode/run_code_python_description.txt`,
 shared with the Python runner). It is off with code mode, so plain chats are unaffected.
