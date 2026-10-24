@@ -5,7 +5,7 @@ go 1.27.0
 toolchain go1.27.2
 
 require (
-	github.com/Kludex/pydantic-ai-go v0.5.0
+	github.com/Kludex/pydantic-ai-go v0.6.0
 	github.com/charmbracelet/bubbles v1.0.0
 	github.com/charmbracelet/bubbletea v1.3.10
 	github.com/charmbracelet/glamour v1.0.0
@@ -63,7 +63,7 @@ require (
 	github.com/muesli/cancelreader v0.2.2 // indirect
 	github.com/muesli/reflow v0.3.0 // indirect
 	github.com/muesli/termenv v0.16.0 // indirect
-	github.com/pydantic/genai-prices/packages/go v0.1.10 // indirect
+	github.com/pydantic/genai-prices/packages/go v0.1.13 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/sahilm/fuzzy v0.1.3 // indirect
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.3 // indirect
@@ -87,3 +87,6 @@ require (
 	google.golang.org/grpc v1.84.0 // indirect
 	google.golang.org/protobuf v1.36.12 // indirect
 )
+
+// Temporary fork pin for https://github.com/Kludex/pydantic-ai-go/pull/74.
+replace github.com/Kludex/pydantic-ai-go => github.com/mdfranz/pydantic-ai-go v0.0.0-20261024005459-b7ca931df776

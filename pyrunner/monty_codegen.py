@@ -172,7 +172,7 @@ def _set_memory_limit() -> None:
 async def cpython_run(code: str, scratch: Path) -> tuple[Any, str, float]:
     script_path = scratch / "run_code.py"
     script_path.write_text(code, encoding="utf-8")
-    executable = shutil.which("python3") or "python3"
+    executable = shutil.which("python3.14") or sys.executable
     env = {
         "PATH": os.getenv("PATH", "/usr/bin:/bin"),
         "HOME": str(scratch),

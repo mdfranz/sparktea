@@ -96,6 +96,12 @@ make clean    # removes ./sparktea
 
 `make install` expects `~/.local/bin` to be on your `PATH`.
 
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs `go vet ./...`,
+`go test -race ./...`, the offline CLI smoke test
+(`SPARKTEA_TEST_LIVE=0 ./test_sparktea.sh`), `golangci-lint` (configured in
+[`.golangci.yml`](.golangci.yml)), and `pyrunner` syntax and case-loading
+checks on pushes to `main` and pull requests.
+
 ## Usage
 
 - `↑`/`↓` (or `j`/`k`) to move through the model list, `enter` to select.
@@ -116,7 +122,7 @@ Type these instead of a message:
 | `/model` | Reopen the model picker mid-conversation; history carries over, even across providers. Known upstream bug: if the prior model left a `ThinkingPart` in history, the first turn on a different provider can fail — see `ISSUES.md`. |
 | `/usage` | Show session totals: requests, input/output tokens, tool calls, cost. A running total (tokens · cost) also shows in the header after each completed turn. |
 | `/clear` | Discard history and usage totals; start fresh without restarting. |
-| `/search` (or `/search on`/`off`) | Toggle native web search grounding (`ai.WebSearchTool`) for models that support it. OpenRouter, Gemini, and Anthropic models pick it up (or silently skip it if the underlying model doesn't do web search); Mistral's adapter doesn't implement pydantic-ai-go's native-tool interface at all, so sparktea leaves the tool out of the request entirely rather than send something the transport would reject — `/search on` on a Mistral model just notes that it's a no-op. OpenAI is excluded the same way for a different reason: pydantic-ai-go's Responses stream parser crashes the turn on a real web search call — see `ISSUES.md`. When a turn's answer cites pages, sparktea shows a "🔗 Sources:" list below it — providers surface this differently (Gemini's grounding chunks, Anthropic's search-result blocks, OpenRouter's annotations), so a page a model consulted without citing may not appear. Known upstream bug: turning search on can break the next turn if history has a prior thinking block — see `ISSUES.md`. |
+| `/search` (or `/search on`/`off`) | Toggle native web search grounding (`ai.WebSearchTool`) for models that support it. OpenRouter, Gemini, Anthropic, and OpenAI Responses support it (or silently skip it if the underlying model doesn't do web search). OpenAI search uses a temporary pydantic-ai-go fork pin to fix reasoning-history replay; see `ISSUES.md`. Mistral's adapter doesn't implement pydantic-ai-go's native-tool interface, so sparktea leaves the tool out rather than send something the transport would reject — `/search on` on Mistral just notes that it's a no-op. When a turn's answer cites pages, sparktea shows a "🔗 Sources:" list below it — providers surface this differently (Gemini's grounding chunks, Anthropic's search-result blocks, OpenRouter's annotations), so a page a model consulted without citing may not appear. |
 | `/get <url>` | Fetch a known HTTP(S) URL and load its normalized content into the conversation for follow-up questions. sparktea uses provider-native fetch when available and pydantic-ai-go's bounded, SSRF-protected local fallback otherwise. The model briefly confirms the retrieval; treat fetched pages as untrusted reference material. |
 | `/code` (or `/code on`/`off`) | Toggle Code Mode: gives the model a `run_code` tool that executes Python in a sandbox. Off by default. See "Code Mode" below. |
 | `/activity` (or `/activity on`/`off`) | Toggle the activity panel: a second scrolling column (right of the transcript) for thinking and tool-call notes, so the main transcript stays just the conversation. On by default; auto-hides below 100 terminal columns regardless of the toggle (too narrow for two columns), falling back to the old inline behavior — the status line notes when that's why you don't see it. |
@@ -234,9 +240,9 @@ summary table as `monty_codegen.sh`, so the same analysis works on both. Its
 | `shell` | Upstream Shell alternative | LocalWorkspace scratch directory only; it isolates nothing |
 | `shell-bwrap` | Upstream Shell alternative | Bubblewrap blocks writes outside scratch and network; host files remain readable |
 
-The runner needs `uv` to resolve and install its pinned dependencies; the
-shell runner needs `jq`. `shell-bwrap` also needs `bwrap` and working
-unprivileged user namespaces.
+The runner needs `uv` (with Python >= 3.14) to resolve and install its pinned
+dependencies; the shell runner needs `jq`. `shell-bwrap` also needs `bwrap` and
+working unprivileged user namespaces.
 
 ### Claude 5.5 Monty benchmark
 
@@ -494,7 +500,8 @@ code — without a broken-code loop running forever.
 ### Local CPython backend
 
 `-code-backend cpython` (with `-prompt` or `-script`) keeps the same
-`run_code` tool but runs the script in local CPython through pydantic-ai-go's
+`run_code` tool but runs the script in local CPython (>= 3.14; prefers
+`python3.14` on `PATH`, falling back to `python3`) through pydantic-ai-go's
 local workspace (`ai.NewLocalWorkspaceBackend`). It exists to measure what
 Monty's limits cost: the same tasks with the full language and standard
 library. See `codemode/python.go`.
@@ -547,10 +554,14 @@ otherwise leave it out, since an adapter without that interface has any
 
 ## Updating pydantic-ai-go
 
-`pydantic-ai-go` is a normal Go module dependency, pinned to a tagged
-release in `go.mod` (currently v0.5.0). To move to a newer release:
+`go.mod` requires pydantic-ai-go v0.6.0 and temporarily replaces it with
+[mdfranz's fork](https://github.com/mdfranz/pydantic-ai-go) at commit
+`b7ca931` ([upstream PR #74](https://github.com/Kludex/pydantic-ai-go/pull/74)).
+The fork fixes OpenAI Responses reasoning-history replay. Once an upstream
+release includes the fix, remove the replacement and update the requirement:
 
 ```console
+go mod edit -dropreplace=github.com/Kludex/pydantic-ai-go
 go get github.com/Kludex/pydantic-ai-go@<version>
 go mod tidy
 ```

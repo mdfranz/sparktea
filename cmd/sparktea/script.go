@@ -84,7 +84,7 @@ func runScript(ctx context.Context, options []modelOption, opts cliOptions) erro
 	if err != nil {
 		return fmt.Errorf("open script: %w", err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	steps, err := parseScript(f)
 	if err != nil {
 		return fmt.Errorf("parse script: %w", err)

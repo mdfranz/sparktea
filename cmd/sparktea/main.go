@@ -70,13 +70,14 @@ func run() (exitCode int) {
 
 	ctx := context.Background()
 	shutdownLogfire, err := initLogfire(ctx)
-	if err != nil {
+	switch {
+	case err != nil:
 		logLocalError("logfire_initialization_failed", err)
 		fmt.Fprintln(os.Stderr, "sparktea: logfire disabled:", err)
-	} else if logfireCapability != nil {
+	case logfireCapability != nil:
 		logLocal(slog.LevelInfo, "logfire_enabled")
 		fmt.Fprintln(os.Stderr, "sparktea: sending traces to Logfire ("+logfireEndpoint()+")")
-	} else {
+	default:
 		logLocal(slog.LevelInfo, "logfire_disabled")
 	}
 	defer func() {

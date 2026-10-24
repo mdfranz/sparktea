@@ -96,7 +96,7 @@ func (h montyTelemetry) RecordPrint(ctx context.Context, text string) {
 func New(opts ...Option) *CodeMode {
 	c := &CodeMode{
 		backend:   BackendMonty,
-		python:    "python3",
+		python:    defaultPython(),
 		tracer:    otel.Tracer("sparktea/codemode"),
 		limits:    defaultLimits(),
 		telemetry: montyTelemetry{recordContent: true},

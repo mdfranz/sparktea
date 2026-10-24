@@ -2,8 +2,9 @@
 
 Tracking known bugs in dependencies that affect sparktea but are fixed
 upstream, not here. Update the status line when an issue closes, and check
-whether sparktea still needs to work around it. All four issues below are
-fixed in pydantic-ai-go v0.4.0 (2026-09-14), which sparktea now uses. The
+whether sparktea still needs to work around it. All four issues below have
+upstream fixes in pydantic-ai-go v0.4.0 (2026-09-14); sparktea now uses
+v0.6.0. The
 last section is not an upstream bug: it records a sparktea usage problem
 found while investigating what first looked like one.
 
@@ -111,7 +112,7 @@ Confirmed via Logfire traces.
 
 ### [#4](https://github.com/Kludex/pydantic-ai-go/issues/4) — OpenAI Responses stream: `response.web_search_call.*` progress events not recognized, crashes the run
 
-**Status: closed upstream 2026-09-14 by [PR #20](https://github.com/Kludex/pydantic-ai-go/pull/20) (v0.4.0 release). Not yet re-verified in sparktea; `/search` is still disabled for OpenAI.**
+**Status: fixed upstream in v0.4.0 by [PR #20](https://github.com/Kludex/pydantic-ai-go/pull/20), and verified live in sparktea on 2026-10-23 with pydantic-ai-go v0.6.0.** An OpenAI Responses request with native web search completed through the progress events and returned an OpenAI API reference page. The separate history-replay issue below is fixed in the temporary fork pin.
 
 `responses_stream.go:714-731`'s event-type switch hardcodes an allowlist of
 provider progress events safe to ignore per tool family —
@@ -127,10 +128,9 @@ generation. Fails immediately with the error above; the run is aborted, not
 degraded. Unlike #2/#3, this needs no prior turn or history replay — the
 *first* streamed native web search on an OpenAI model crashes the turn.
 
-**Impact on sparktea:** `supportsNativeWebSearch()` in `models.go` excludes
-`providerOpenAI` entirely as a result, so `/search` is currently unavailable
-for OpenAI models (same treatment as Mistral, for an unrelated reason) until
-this is fixed upstream.
+**Impact on sparktea:** `supportsNativeWebSearch()` in `models.go` now includes
+`providerOpenAI` using the temporary fork pin. Mistral remains unsupported
+because its adapter does not implement native tools.
 
 **Pattern shared with #2/#3:** all three are the same shape of bug — a
 hand-maintained enumeration of cases (part types, provider guards, event
@@ -144,8 +144,32 @@ the Responses stream parser instead.
 README's "Updating pydantic-ai-go") and re-run the matching repro above.
 #2, #3, and #8 needed no sparktea-side change — all three are in the
 provider adapters' request serialization, not in how sparktea builds or
-replays `m.history`. #4 does: once verified live on v0.4.0, add
-`providerOpenAI` back to `supportsNativeWebSearch()` in `models.go`.
+replays `m.history`. For #4, live verification on v0.6.0 confirmed the
+parser fix. OpenAI search uses the fork fix for the separate replay issue below.
+
+## pydantic-ai-go: OpenAI Responses reasoning-history replay omits required `summary`
+
+Found 2026-10-23 while testing OpenAI native web search before enabling it in
+sparktea. Tracked upstream as
+[pydantic-ai-go #73](https://github.com/Kludex/pydantic-ai-go/issues/73).
+The first search succeeds, but the next turn in the same conversation fails
+with HTTP 400:
+
+```
+Missing required parameter: 'input[3].summary'.
+```
+
+The missing `summary` belongs to a `reasoning` input item produced alongside
+the web search call. In v0.6.0, pydantic-ai-go replays the reasoning item
+without its required summary array. The web-search call itself has no
+`summary` field.
+
+**Status:** fixed on [mdfranz's fork](https://github.com/mdfranz/pydantic-ai-go)
+at commit `b7ca931` and proposed upstream in
+[PR #74](https://github.com/Kludex/pydantic-ai-go/pull/74). Sparktea pins
+that commit in `go.mod` until an upstream release includes the fix. A live
+sparktea script completed a plain turn, a streamed OpenAI web-search turn,
+and a follow-up using the same history.
 
 ## sparktea: `RunStream` ends the run when text precedes a tool call (FIXED, sparktea-side)
 

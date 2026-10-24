@@ -4,8 +4,6 @@ github.com/JohannesKaufmann/dom v0.3.1 h1:J16l9JAHWgkFPR3VIPbQ1gvS0cWab6laK1q7PF
 github.com/JohannesKaufmann/dom v0.3.1/go.mod h1:BZPkf8ZeYrBgABjwJn9iiKt8aiCtkxpHkevms+Yp2DE=
 github.com/JohannesKaufmann/html-to-markdown/v2 v2.5.2 h1:XFJZFWESIWlUEHHjzBuv8RvrtCWnSGlimEX17ysSDb8=
 github.com/JohannesKaufmann/html-to-markdown/v2 v2.5.2/go.mod h1:BHWO8lJzttJLqwuV8Rb1B3OG2OSzLbssZDI1FRg2eAA=
-github.com/Kludex/pydantic-ai-go v0.5.0 h1:PCstkHpnVz/GMo9JN1kISz23UTl167UdSbwEJUPLpVE=
-github.com/Kludex/pydantic-ai-go v0.5.0/go.mod h1:Hnlvol5LxJXlGDklqO0U71QekyOwGYNFAhO/eSoTQEs=
 github.com/MakeNowJust/heredoc v1.0.0 h1:cXCdzVdstXyiTqTvfqk9SDHpKNjxuom+DOlyEeQ4pzQ=
 github.com/MakeNowJust/heredoc v1.0.0/go.mod h1:mG5amYoWBHf8vpLOuehzbGGw0EHxpZZ6lCpQ4fNJ8LE=
 github.com/PuerkitoBio/goquery v1.13.0 h1:mqHbjD7Jmnul4DTR24LKTjo1uUmHUh072kteGV+xpFM=
@@ -126,6 +124,8 @@ github.com/mdfranz/gomonty v0.0.18 h1:9UkPzb4xiN8IQubKFcicWhnBavk/0pUfUSxFKl5mGi
 github.com/mdfranz/gomonty v0.0.18/go.mod h1:YjehEbokRptoXltoA6WC+YuhK3UROqRr1jwioDjKJFs=
 github.com/mdfranz/gomonty/otelmonty v0.0.0-20261004001423-f8e2d1093a4e h1:tyAImfId0vBqk0Io2AdSA96cdTtwMCtN93royMTaSt0=
 github.com/mdfranz/gomonty/otelmonty v0.0.0-20261004001423-f8e2d1093a4e/go.mod h1:iQ0F+5PrRGnfZ9g7/CO640VSfSJNGG1Xkv7noz9nS7c=
+github.com/mdfranz/pydantic-ai-go v0.0.0-20261024005459-b7ca931df776 h1:dIYt3lVILgdqWpTEoamqSqnrHAjJbFneLz+lX9BXcmY=
+github.com/mdfranz/pydantic-ai-go v0.0.0-20261024005459-b7ca931df776/go.mod h1:m0kcC+fWPur0hKPn7Wj5Mxci2BQBlIKAJvXWfrV2S8g=
 github.com/microcosm-cc/bluemonday v1.0.27 h1:MpEUotklkwCSLeH+Qdx1VJgNqLlpY2KXwXFM08ygZfk=
 github.com/microcosm-cc/bluemonday v1.0.27/go.mod h1:jFi9vgW+H7c3V0lb6nR74Ib/DIB5OBs92Dimizgw2cA=
 github.com/muesli/ansi v0.0.0-20230316100256-276c6243b2f6 h1:ZK8zHtRHOkbHy6Mmr5D264iyp3TiX5OmNcI5cIARiQI=
@@ -138,8 +138,8 @@ github.com/muesli/termenv v0.16.0 h1:S5AlUN9dENB57rsbnkPyfdGuWIlkmzJjbFf0Tf5FWUc
 github.com/muesli/termenv v0.16.0/go.mod h1:ZRfOIKPFDYQoDFF4Olj7/QJbW60Ol/kL1pU3VfY/Cnk=
 github.com/pmezard/go-difflib v1.0.0 h1:4DBwDE0NGyQoBHbLQYPwSUPoCMWR5BEzIk/f1lZbAQM=
 github.com/pmezard/go-difflib v1.0.0/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=
-github.com/pydantic/genai-prices/packages/go v0.1.10 h1:YZ74pQQVEJ0nSgiPRrwULNNUVk1AkP9CxCpkFr098FM=
-github.com/pydantic/genai-prices/packages/go v0.1.10/go.mod h1:ueaSzJGAeYLAGOmYLQb4I9DFmB/EEs2DmHa1rNwIBKk=
+github.com/pydantic/genai-prices/packages/go v0.1.13 h1:9P1ZRAAwpua/cn5McRvaX7TL7/tfobSLJgpwhImQHJk=
+github.com/pydantic/genai-prices/packages/go v0.1.13/go.mod h1:ueaSzJGAeYLAGOmYLQb4I9DFmB/EEs2DmHa1rNwIBKk=
 github.com/rivo/uniseg v0.1.0/go.mod h1:J6wj4VEh+S6ZtnVlnTBMWIodfgj8LQOQFoIToxlJtxc=
 github.com/rivo/uniseg v0.2.0/go.mod h1:J6wj4VEh+S6ZtnVlnTBMWIodfgj8LQOQFoIToxlJtxc=
 github.com/rivo/uniseg v0.4.7 h1:WUdvkW8uEhrYfLC4ZzdpI2ztxP1I582+49Oc5Mq64VQ=

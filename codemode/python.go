@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -47,9 +48,16 @@ func WithBackend(b Backend) Option {
 }
 
 // WithPython sets the Python interpreter for BackendCPython (default
-// "python3", looked up on PATH).
+// "python3.14" if on PATH, otherwise "python3").
 func WithPython(path string) Option {
 	return func(c *CodeMode) { c.python = path }
+}
+
+func defaultPython() string {
+	if _, err := exec.LookPath("python3.14"); err == nil {
+		return "python3.14"
+	}
+	return "python3"
 }
 
 const (
@@ -89,7 +97,7 @@ func (c *CodeMode) handleRunPython(ctx context.Context, rawArgs json.RawMessage)
 	if err != nil {
 		return nil, fmt.Errorf("codemode: scratch directory: %w", err)
 	}
-	defer os.RemoveAll(dir)
+	defer func() { _ = os.RemoveAll(dir) }()
 	if err := os.WriteFile(filepath.Join(dir, pythonScript), []byte(args.Code), 0o600); err != nil {
 		return nil, fmt.Errorf("codemode: write script: %w", err)
 	}

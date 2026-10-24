@@ -17,8 +17,8 @@ import (
 
 func runPythonRaw(t *testing.T, code string) (any, error) {
 	t.Helper()
-	if _, err := exec.LookPath("python3"); err != nil {
-		t.Skip("python3 not on PATH")
+	if _, err := exec.LookPath(defaultPython()); err != nil {
+		t.Skipf("%s not on PATH", defaultPython())
 	}
 	args, err := json.Marshal(map[string]string{"code": code})
 	if err != nil {
@@ -83,6 +83,9 @@ func TestRunPythonResultShapes(t *testing.T) {
 
 // The point of the backend: things Monty rejects run fine.
 func TestRunPythonFullLanguageAndStdlib(t *testing.T) {
+	if got := runPython(t, "import sys\nsys.version_info >= (3, 14)"); got != true {
+		t.Fatalf("expected CPython >= 3.14, got %#v", got)
+	}
 	code := `import hashlib, enum, statistics
 from dataclasses import dataclass, field, asdict
 class Color(enum.Enum):
@@ -113,7 +116,7 @@ func TestRunPythonErrorsAreRetries(t *testing.T) {
 		{"import numpy_does_not_exist", "ModuleNotFoundError:"},
 		{"import time\ntime.sleep(10)", "TimeoutError:"},
 		{"x = bytearray(1 << 30)", "MemoryError"},
-		{"x = 1\x00", "ValueError: source code string cannot contain null bytes"},
+		{"x = 1\x00", "SyntaxError: source code string cannot contain null bytes"},
 	}
 	for _, tc := range cases {
 		result, err := runPythonRaw(t, tc.code)
@@ -158,8 +161,8 @@ func TestRunPythonScratchDirectoryIsRemoved(t *testing.T) {
 
 func runPythonTraced(t *testing.T, code string, content bool) (sdktrace.ReadOnlySpan, error) {
 	t.Helper()
-	if _, err := exec.LookPath("python3"); err != nil {
-		t.Skip("python3 not on PATH")
+	if _, err := exec.LookPath(defaultPython()); err != nil {
+		t.Skipf("%s not on PATH", defaultPython())
 	}
 	recorder := tracetest.NewSpanRecorder()
 	tp := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(recorder))
