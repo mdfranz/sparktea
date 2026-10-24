@@ -121,14 +121,9 @@ func (m modelOption) newModel() ai.Model {
 // (Mistral, as of this writing) has any ai.NativeTool in the request rejected
 // outright by the transport, even one marked Optional — Optional only takes
 // effect when SupportsNativeTool exists to be consulted.
-//
-// OpenAI is excluded too, despite openai.ResponsesModel implementing the
-// interface: the upstream Responses stream parser fix for
-// response.web_search_call.* progress events is present in v0.6.0, but has
-// not yet been verified live in sparktea. Keep it disabled until that check.
 func (m modelOption) supportsNativeWebSearch() bool {
 	switch m.provider {
-	case providerOpenRouter, providerGoogle, providerAnthropic:
+	case providerOpenRouter, providerGoogle, providerAnthropic, providerOpenAI:
 		return true
 	default:
 		return false

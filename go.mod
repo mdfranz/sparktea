@@ -87,3 +87,6 @@ require (
 	google.golang.org/grpc v1.84.0 // indirect
 	google.golang.org/protobuf v1.36.12 // indirect
 )
+
+// Temporary fork pin for https://github.com/Kludex/pydantic-ai-go/pull/74.
+replace github.com/Kludex/pydantic-ai-go => github.com/mdfranz/pydantic-ai-go v0.0.0-20261024005459-b7ca931df776
