@@ -67,10 +67,7 @@ func TestRunCodeMontyTelemetryJoinsParentTrace(t *testing.T) {
 	tracer := tp.Tracer("sparktea-test")
 
 	c := New()
-	c.telemetry = montyTelemetry{
-		Handler:       otelmonty.Handler{Tracer: tracer},
-		recordContent: true,
-	}
+	c.telemetry = otelmonty.Handler{Tracer: tracer}
 	ctx, parent := tracer.Start(context.Background(), "run_code tool")
 	args, err := json.Marshal(map[string]string{"code": "print('hello')\n40 + 2"})
 	if err != nil {
@@ -106,10 +103,7 @@ func TestRunCodeMontyTelemetryContentOptOut(t *testing.T) {
 	recorder := tracetest.NewSpanRecorder()
 	tp := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(recorder))
 	c := New(WithTelemetryContent(false))
-	c.telemetry = montyTelemetry{
-		Handler:       otelmonty.Handler{Tracer: tp.Tracer("sparktea-test")},
-		recordContent: false,
-	}
+	c.telemetry = otelmonty.Handler{Tracer: tp.Tracer("sparktea-test")}
 	args, err := json.Marshal(map[string]string{"code": "print('secret')\n42"})
 	if err != nil {
 		t.Fatal(err)
@@ -221,7 +215,10 @@ func TestRunCodeSyntaxError(t *testing.T) {
 }
 
 func TestRunCodeDisallowedImport(t *testing.T) {
-	runExpectingRetry(t, "import requests", nil)
+	msg := runExpectingRetry(t, "import requests", nil)
+	if !strings.Contains(msg, "ModuleNotFoundError") || !strings.Contains(msg, "requests") {
+		t.Fatalf("got retry message %q, want ModuleNotFoundError mentioning requests", msg)
+	}
 }
 
 func TestRunCodeExceedsMaxDuration(t *testing.T) {
@@ -259,7 +256,7 @@ func TestRunCodeExceedsMaxMemory(t *testing.T) {
 // TestRunCodeUnsupportedStdlibModules tracks the latest Monty stdlib surface.
 // Keep the run_code description in sync when the gomonty pin is refreshed.
 func TestRunCodeUnsupportedStdlibModules(t *testing.T) {
-	for _, mod := range []string{"statistics", "enum", "struct", "hashlib", "contextlib", "operator", "string", "io"} {
+	for _, mod := range []string{"statistics", "enum", "struct", "contextlib", "operator", "string", "io"} {
 		t.Run(mod, func(t *testing.T) {
 			runExpectingRetry(t, "import "+mod, nil)
 		})
@@ -301,9 +298,16 @@ func TestRunCodeSupportedStdlibModules(t *testing.T) {
 		{"itertools", "import itertools\nlen(list(itertools.batched(range(5), 2)))", int64(3)},
 		{"itertools accumulate", "import itertools\nlist(itertools.accumulate([1, 2, 3]))[-1]", int64(6)},
 		{"functools", "import functools\nfunctools.partial(lambda a, b: a + b, 20)(22)", int64(42)},
+		{"functools.lru_cache", "import functools\n@functools.lru_cache\ndef f(n):\n    return n if n < 2 else f(n - 1) + f(n - 2)\nf(10)", int64(55)},
+		{"functools.cache", "import functools\n@functools.cache\ndef f(n):\n    return n * 2\nf(21)", int64(42)},
 		{"copy", "import copy\ncopy.deepcopy([1, [2]])[1][0]", int64(2)},
 		{"random", "import random\nrng = random.Random(42)\nrng.randint(1, 10)", int64(2)},
 		{"time", "import time\nhasattr(time, 'time')", true},
+		{"hashlib", "import hashlib\nhashlib.sha256(b'hello').hexdigest()", "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"},
+		{"bisect", "import bisect\nbisect.bisect_left([1, 3, 5], 4)", int64(2)},
+		{"decimal", "from decimal import Decimal\nstr(Decimal('1.20') + Decimal('2.30'))", "3.50"},
+		{"dataclasses.field", "from dataclasses import dataclass, field\n@dataclass\nclass P:\n    x: int = field(default=42)\nP().x", int64(42)},
+		{"complex", "complex(1, 2)", "(1+2j)"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if got := run(t, tc.code, nil); !reflect.DeepEqual(got, tc.want) {
@@ -314,7 +318,7 @@ func TestRunCodeSupportedStdlibModules(t *testing.T) {
 }
 
 // TestLatestMontyPythonLanguageFeatures is a compatibility matrix for the
-// language constructs supported by Monty v1.0.0-beta.2 that are useful for
+// language constructs supported by Monty v1.6.0 that are useful for
 // model-written calculations and data-wrangling scripts. It intentionally
 // tests observable results through CodeMode's flattening path, not just that
 // source compiles.
@@ -324,6 +328,11 @@ func TestLatestMontyPythonLanguageFeatures(t *testing.T) {
 		code string
 		want any
 	}{
+		{
+			name: "match statement",
+			code: "match 1:\n    case 1:\n        result = 42\nresult",
+			want: int64(42),
+		},
 		{
 			name: "closures and lambdas",
 			code: "def make_adder(x):\n    return lambda y: x + y\nmake_adder(40)(2)",
@@ -404,7 +413,6 @@ func TestLatestMontyPythonLanguageFeatures(t *testing.T) {
 // compatibility gaps to work around inside sparktea.
 func TestLatestMontyRejectedLanguageFeatures(t *testing.T) {
 	for _, tc := range []struct{ name, code string }{
-		{"match statement", "match 1:\n    case 1:\n        result = 1"},
 		{"generator function", "def values():\n    yield 1\nvalues()"},
 		{"class inheritance", "class Child(Parent):\n    pass"},
 		{"del statement", "value = 1\ndel value"},
@@ -424,9 +432,6 @@ func TestLatestMontyRejectedLanguageFeatures(t *testing.T) {
 // says are missing from the latest Monty release. Keep the two in sync.
 func TestRunCodeDescribedMissingNames(t *testing.T) {
 	for _, tc := range []struct{ name, code string }{
-		{"functools.lru_cache", "import functools\nfunctools.lru_cache"},
-		{"functools.cache", "import functools\nfunctools.cache"},
-		{"dataclasses.field", "from dataclasses import field"},
 		{"dataclasses.asdict", "from dataclasses import asdict"},
 		{"re.VERBOSE", "import re\nre.VERBOSE"},
 		{"sys.setrecursionlimit", "import sys\nsys.setrecursionlimit(500)"},
@@ -445,9 +450,7 @@ func TestRunCodeDescribedMissingNames(t *testing.T) {
 		{"exception multiple args", "raise ValueError('a', 'b')"},
 		{"type() custom exception", "type('E', (Exception,), {})"},
 		{"callable builtin", "callable(len)"},
-		{"complex builtin", "complex(1, 2)"},
 		{"heapq", "import heapq"},
-		{"bisect", "import bisect"},
 		{"textwrap", "import textwrap"},
 		{"functools.cmp_to_key", "import functools\nfunctools.cmp_to_key"},
 		{"dataclasses.replace", "from dataclasses import replace"},

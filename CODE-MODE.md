@@ -17,7 +17,7 @@ backends, see
 
 Versions:
 - pydantic-ai-go v0.5.0
-- gomonty v0.0.18 (Monty v1.0.1)
+- gomonty v0.2.0 (Monty v1.6.0)
 - CPython: whatever `python3` is on `PATH` (3.11.2 in the benchmarks)
 
 ## Overview
@@ -183,16 +183,15 @@ Code: `codemode/codemode.go` and `codemode/flatten.go`.
 | neither | `{}` |
 
 **What the model is told:**
-- **Tool description:** about 2,200 characters, listing what Monty lacks:
-  - missing modules (`statistics`, `enum`, `hashlib`, `heapq` and others);
+- **Tool description:** lists what Monty lacks:
+  - missing modules (`statistics`, `enum`, `heapq` and others);
   - missing builtins;
-  - missing names in present modules, such as `dataclasses.field` and
-    `functools.lru_cache`;
-  - unsupported syntax: inheritance, decorators on methods, generators,
-    `match`;
+  - missing names in present modules, such as `dataclasses.fields` and
+    `functools.cmp_to_key`;
+  - unsupported syntax: inheritance, decorators on methods, generators;
   - the exception-argument rule;
   - the 100-frame recursion limit.
-- **System instruction:** about 320 characters, added through
+- **System instruction:** added through
   `AddInstructions`. It names the features models most often try anyway.
 
 Every model request in a code-mode turn carries both, so they account for
@@ -354,7 +353,7 @@ matched configurations and three upstream or alternative configurations:
   sparktea's tool description and Monty instruction. This aligns the prompt
   and most limits, while leaving the harness behavior intact: its `run_code`
   accepts `restart` and keeps REPL state between calls. It also uses Monty
-  1.1.0, while sparktea's gomonty embeds Monty 1.0.1. It is therefore a close
+  1.1.0, while sparktea's gomonty embeds Monty 1.6.0. It is therefore a close
   comparison, not the same implementation.
 - **`cpython-sparktea`** uses a custom stateless `run_code` tool and reuses
   [`python_runner.py`](codemode/python_runner.py), with the same description,

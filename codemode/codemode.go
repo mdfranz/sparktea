@@ -72,23 +72,9 @@ func WithLimits(l monty.ResourceLimits) Option {
 // recorded either way.
 func WithTelemetryContent(enabled bool) Option {
 	return func(c *CodeMode) {
-		c.telemetry = montyTelemetry{recordContent: enabled}
 		c.telemetryOptions.RecordArguments = enabled
 		c.telemetryOptions.RecordOutputs = enabled
-	}
-}
-
-// montyTelemetry wraps gomonty's OTel bridge so sparktea's content opt-out
-// also suppresses print() events, which the upstream handler records
-// independently of TelemetryOptions.RecordArguments/RecordOutputs.
-type montyTelemetry struct {
-	otelmonty.Handler
-	recordContent bool
-}
-
-func (h montyTelemetry) RecordPrint(ctx context.Context, text string) {
-	if h.recordContent {
-		h.Handler.RecordPrint(ctx, text)
+		c.telemetryOptions.RecordPrint = enabled
 	}
 }
 
@@ -99,10 +85,11 @@ func New(opts ...Option) *CodeMode {
 		python:    "python3",
 		tracer:    otel.Tracer("sparktea/codemode"),
 		limits:    defaultLimits(),
-		telemetry: montyTelemetry{recordContent: true},
+		telemetry: otelmonty.Handler{},
 		telemetryOptions: monty.TelemetryOptions{
 			RecordArguments: true,
 			RecordOutputs:   true,
+			RecordPrint:     true,
 		},
 	}
 	for _, opt := range opts {
