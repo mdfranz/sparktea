@@ -57,6 +57,8 @@ type CodeMode struct {
 	limits           *monty.ResourceLimits
 	telemetry        monty.TelemetryHandler
 	telemetryOptions monty.TelemetryOptions
+	remote           RemoteConfig
+	montyBackend     monty.Backend
 }
 
 // Option configures a CodeMode built by New.
@@ -152,6 +154,9 @@ func (c *CodeMode) handleRunCode(ctx context.Context, rawArgs json.RawMessage) (
 	}
 	if err := json.Unmarshal(rawArgs, &args); err != nil {
 		return nil, fmt.Errorf("codemode: decode run_code args: %w", err)
+	}
+	if c.IsRemote() {
+		return c.runRemote(ctx, args.Code)
 	}
 
 	runner, err := monty.New(args.Code, monty.CompileOptions{ScriptName: "run_code.py"})

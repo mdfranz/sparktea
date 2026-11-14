@@ -29,8 +29,9 @@ sparktea turn (cmd/sparktea: runTurn / TUI stream loop)
      ├─ chat <model>                        model request (pydantic-ai-go)
      ├─ execute_tool run_code               tool span (pydantic-ai-go)
      │   └─ handler, by backend:
-     │       ├─ monty:   monty.New → runner.Run   → span monty.run   (gomonty/otelmonty)
-     │       └─ cpython: LocalWorkspaceBackend.Run → span python.run (sparktea)
+     │       ├─ monty (in-process): monty.New → runner.Run → span monty.run (gomonty/otelmonty)
+     │       ├─ monty (remote):     remote.DialGRPC → monty.NewRepl → repl.FeedRun → span monty.run
+     │       └─ cpython:            LocalWorkspaceBackend.Run → span python.run (sparktea)
      └─ chat <model>                        next request, with the tool result or retry prompt
 ```
 
@@ -138,6 +139,7 @@ sparktea adds:
   - `sparktea.provider` and `sparktea.model`;
   - `sparktea.code_mode`;
   - `sparktea.code_backend`, when code mode is on;
+  - `sparktea.monty_remote`, when code mode is on (`true` if `-monty-remote` or `MONTY_REMOTE_ENDPOINT` is set);
   - `sparktea.web_search`.
 
   It also carries `logfire.tags`: `monty` or `cpython`, plus `web_search`
@@ -203,6 +205,27 @@ most of Monty's extra input tokens in the benchmark.
 - Calls are fast: a typical `monty.run` takes under 1 ms.
 - The language and standard library are narrower than CPython's, so models
   spend retries working around missing features.
+
+### Remote Monty worker
+
+Code: `codemode/remote.go`.
+
+When `-monty-remote <host:port>` or `MONTY_REMOTE_ENDPOINT` is configured with
+`BackendMonty` (in the TUI, `-prompt`, or `-script`), `handleRunCode` executes
+each call on the remote worker via `remote.DialGRPC` and a fresh
+`monty.NewRepl` + `repl.FeedRun` session rather than the in-process runner:
+
+- **TLS & token hygiene:** `remote.DialGRPC` uses TLS 1.2+ by default and reads
+  `MONTY_REMOTE_TOKEN` from the environment. The token is never logged or
+  stored in `/save` session files. `MONTY_REMOTE_INSECURE=1` permits plaintext
+  gRPC for local test workers and rejects any non-empty token.
+- **Error separation:** `PythonError` and `TypingError` responses from the
+  script become `ai.Retryf` prompts like local errors. Dial, auth,
+  session-refusal (`SessionRefusedError`), and dropped-stream
+  (`ConnectionLostError`) failures return plain errors so the turn fails
+  immediately without retrying or falling back to in-process execution.
+- **Identical model contract:** tool schema, description, and instructions do
+  not change.
 
 ## CPython backend
 

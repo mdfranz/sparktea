@@ -11,6 +11,7 @@ require (
 	github.com/charmbracelet/x/ansi v0.11.9
 	github.com/mdfranz/gomonty v0.2.0
 	github.com/mdfranz/gomonty/otelmonty v0.2.0
+	github.com/mdfranz/gomonty/remote v0.0.0-20261113125658-34a69246094c
 	go.opentelemetry.io/otel v1.47.0
 	go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp v1.47.0
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp v1.47.0

@@ -126,6 +126,8 @@ github.com/mdfranz/gomonty v0.2.0 h1:q7mMjqx4L3JD2Pb1PQS88I21cyYqF7nQF3kVZAzKjsE
 github.com/mdfranz/gomonty v0.2.0/go.mod h1:8uXobmWehq2WraUWaDMzo2PGDP2SKf+ESIHBP0RSxko=
 github.com/mdfranz/gomonty/otelmonty v0.2.0 h1:Xm1wQd/cSTNQiCUXFe4LxVzd9wg22+IDyfWynxg5RcE=
 github.com/mdfranz/gomonty/otelmonty v0.2.0/go.mod h1:xWe/014sXqO7nnw1P6gQG3fe827KIYn7pUjNnyel4Sw=
+github.com/mdfranz/gomonty/remote v0.0.0-20261113125658-34a69246094c h1:I8oXHpH0NmF7MEtCP6WNWWBkt+6xFPeg/NqvcXveF+0=
+github.com/mdfranz/gomonty/remote v0.0.0-20261113125658-34a69246094c/go.mod h1:e30q2iHZqKt0MF1X3f72ZbktBSuebMYoE5RLDEqBOdo=
 github.com/microcosm-cc/bluemonday v1.0.27 h1:MpEUotklkwCSLeH+Qdx1VJgNqLlpY2KXwXFM08ygZfk=
 github.com/microcosm-cc/bluemonday v1.0.27/go.mod h1:jFi9vgW+H7c3V0lb6nR74Ib/DIB5OBs92Dimizgw2cA=
 github.com/muesli/ansi v0.0.0-20230316100256-276c6243b2f6 h1:ZK8zHtRHOkbHy6Mmr5D264iyp3TiX5OmNcI5cIARiQI=

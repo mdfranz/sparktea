@@ -148,6 +148,10 @@ sparktea -model anthropic:claude-haiku-4-5-20251001 -code \
 - `-code-backend cpython` runs Code Mode's Python in local CPython instead of
   Monty (see "Local CPython backend" under Code Mode). CLI only; the TUI
   always uses Monty.
+- `-monty-remote <host:port>` offloads Monty `run_code` execution to a remote
+  Monty worker instead of the in-process interpreter (defaults to
+  `MONTY_REMOTE_ENDPOINT`; see "Remote Monty worker" under Code Mode). Works in
+  the TUI, `-prompt`, and `-script`.
 - The model's answer streams to stdout; thinking, tool calls (including the
   exact `run_code` argument and result), and a final usage line go to
   stderr — redirect it away (`2>/dev/null`) for just the answer, or capture
@@ -492,6 +496,25 @@ resource-limit violation comes back to the model as a bounded retry prompt
 (`*ai.RetryError`, capped at 20 cumulative failures for the run) rather than
 a hard failure, so it can see what went wrong and retry with corrected
 code — without a broken-code loop running forever.
+
+### Remote Monty worker
+
+Pass `-monty-remote <host:port>` or set `MONTY_REMOTE_ENDPOINT` to execute
+Monty `run_code` calls on a remote worker over gRPC
+(`github.com/mdfranz/gomonty/remote`) instead of the in-process interpreter.
+When unset, execution stays in-process.
+
+- **Auth & TLS:** TLS 1.2+ is enabled by default. Set `MONTY_REMOTE_TOKEN` for
+  bearer authentication; the token is read only from the environment and is
+  never logged or saved to `/save` session files. Setting
+  `MONTY_REMOTE_INSECURE=1` disables TLS for local non-TLS test workers and
+  refuses to send a token.
+- **Same model surface:** uses the same `run_code` schema, tool description,
+  and instructions as in-process Monty.
+- **Fail-closed:** if the remote worker is unreachable, refuses the session, or
+  drops the connection, the turn fails cleanly rather than falling back to
+  in-process execution. Python syntax/runtime errors still return retry prompts
+  so the model can fix its code.
 
 ### Local CPython backend
 

@@ -9,7 +9,6 @@ import (
 	"strings"
 
 	ai "github.com/Kludex/pydantic-ai-go/ai"
-	"github.com/mdfranz/sparktea/codemode"
 )
 
 // scriptStep is one parsed line of a -script file: either a command
@@ -95,7 +94,7 @@ func runScript(ctx context.Context, options []modelOption, opts cliOptions) erro
 		return err
 	}
 	agent := newAgentFor(option)
-	codeModeCapability := codemode.New(codemode.WithTelemetryContent(logfireSendContent()), codemode.WithBackend(opts.codeBackend))
+	codeModeCapability := newCodeMode(opts.codeBackend, opts.montyRemote)
 
 	var history []ai.ModelMessage
 	var searchEnabled, codeEnabled bool
@@ -141,7 +140,7 @@ func runScript(ctx context.Context, options []modelOption, opts cliOptions) erro
 				turn, option.provider, option.modelID, effectiveSearch, codeEnabled)
 			logArgs := []any{"web_search", effectiveSearch, "code_mode", codeEnabled, "script_turn", turn}
 			if codeEnabled {
-				logArgs = append(logArgs, "code_backend", string(opts.codeBackend))
+				logArgs = append(logArgs, "code_backend", string(opts.codeBackend), "monty_remote", codeModeCapability.IsRemote())
 			}
 			messages, err := runTurn(ctx, agent, option, step.arg, history, runOpts, "script", logArgs...)
 			if err != nil {

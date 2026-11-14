@@ -1,17 +1,26 @@
 package codemode
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
+	"log/slog"
+	"net"
+	"os"
 	"reflect"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/Kludex/pydantic-ai-go/ai"
+	"github.com/Kludex/pydantic-ai-go/ai/models/fakes"
 	monty "github.com/mdfranz/gomonty"
 	"github.com/mdfranz/gomonty/otelmonty"
+	"github.com/mdfranz/gomonty/remote"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 )
@@ -498,5 +507,414 @@ func TestRunCodeDefaultFlattenFallback(t *testing.T) {
 	s, ok := got.(string)
 	if !ok || s == "" {
 		t.Fatalf("got %#v, want a non-empty string (Value.String() fallback)", got)
+	}
+}
+
+type fakeMontyBackend struct {
+	onNewRepl   func(opts monty.ReplOptions) (monty.ReplHandle, error)
+	replOpts    monty.ReplOptions
+	replClosed  atomic.Int32
+	feedCalls   atomic.Int32
+	lastCode    string
+}
+
+func (b *fakeMontyBackend) NewRunner(string, monty.CompileOptions) (monty.RunnerHandle, error) {
+	return nil, errors.New("fake backend supports REPL sessions only")
+}
+
+func (b *fakeMontyBackend) LoadRunner([]byte) (monty.RunnerHandle, error) {
+	return nil, errors.New("fake backend supports REPL sessions only")
+}
+
+func (b *fakeMontyBackend) NewRepl(opts monty.ReplOptions) (monty.ReplHandle, error) {
+	b.replOpts = opts
+	return b.onNewRepl(opts)
+}
+
+func (b *fakeMontyBackend) LoadProgress([]byte) monty.Step {
+	return monty.Step{Err: errors.New("unsupported")}
+}
+
+type fakeReplHandle struct {
+	backend *fakeMontyBackend
+	onFeed  func(ctx context.Context, code string, opts monty.FeedStartOptions) monty.Step
+	closed  atomic.Bool
+}
+
+func (r *fakeReplHandle) Close() {
+	if r.closed.CompareAndSwap(false, true) {
+		r.backend.replClosed.Add(1)
+	}
+}
+
+func (r *fakeReplHandle) Dump() ([]byte, error) { return nil, errors.New("unsupported") }
+
+func (r *fakeReplHandle) FeedStart(ctx context.Context, code string, opts monty.FeedStartOptions) monty.Step {
+	r.backend.feedCalls.Add(1)
+	r.backend.lastCode = code
+	return r.onFeed(ctx, code, opts)
+}
+
+type fakeCompleteProgress struct {
+	next monty.ReplHandle
+}
+
+func (*fakeCompleteProgress) Close()                {}
+func (*fakeCompleteProgress) Dump() ([]byte, error) { return nil, errors.New("unsupported") }
+func (p *fakeCompleteProgress) TakeRepl() (monty.ReplHandle, error) {
+	return p.next, nil
+}
+func (*fakeCompleteProgress) ResumeCall(context.Context, monty.Result) monty.Step {
+	return monty.Step{Err: errors.New("already completed")}
+}
+func (*fakeCompleteProgress) ResumeLookup(context.Context, monty.Value, bool) monty.Step {
+	return monty.Step{Err: errors.New("already completed")}
+}
+func (*fakeCompleteProgress) ResumeFutures(context.Context, map[uint32]monty.Result) monty.Step {
+	return monty.Step{Err: errors.New("already completed")}
+}
+
+func TestRemoteConfigFromEnvAndRedaction(t *testing.T) {
+	const secret = "monty-secret-token-xyz"
+	t.Setenv(EnvMontyRemoteEndpoint, "worker.internal:9443")
+	t.Setenv(EnvMontyRemoteToken, secret)
+	t.Setenv(EnvMontyRemoteInsecure, "1")
+
+	cfg := RemoteConfigFromEnv("")
+	if cfg.Endpoint != "worker.internal:9443" || cfg.Token != secret || !cfg.Insecure {
+		t.Fatalf("RemoteConfigFromEnv(\"\") = %+v", cfg)
+	}
+
+	override := RemoteConfigFromEnv(" override.internal:443 ")
+	if override.Endpoint != "override.internal:443" || override.Token != secret || !override.Insecure {
+		t.Fatalf("RemoteConfigFromEnv(override) = %+v", override)
+	}
+
+	var logBuf bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&logBuf, nil))
+	logger.Info("remote_config", "cfg", cfg)
+
+	for name, rendered := range map[string]string{
+		"String()": cfg.String(),
+		"%+v":      fmt.Sprintf("%+v", cfg),
+		"%#v":      fmt.Sprintf("%#v", cfg),
+		"slog":     logBuf.String(),
+	} {
+		if strings.Contains(rendered, secret) {
+			t.Errorf("%s leaked secret token: %s", name, rendered)
+		}
+		if !strings.Contains(rendered, "worker.internal:9443") {
+			t.Errorf("%s omitted endpoint: %s", name, rendered)
+		}
+	}
+}
+
+func TestRunCodeRemoteFakeWorkerSuccess(t *testing.T) {
+	var backend *fakeMontyBackend
+	backend = &fakeMontyBackend{
+		onNewRepl: func(opts monty.ReplOptions) (monty.ReplHandle, error) {
+			return &fakeReplHandle{
+				backend: backend,
+				onFeed: func(ctx context.Context, code string, _ monty.FeedStartOptions) monty.Step {
+					if sink := monty.PrintSinkFromContext(ctx); sink != nil {
+						sink("stdout", "hi\n")
+					}
+					next := &fakeReplHandle{backend: backend}
+					return monty.Step{
+						Progress:        &fakeCompleteProgress{next: next},
+						Prints:          "hi\n",
+						PrintsDelivered: true,
+						Desc: monty.ProgressDesc{
+							Kind:       monty.ProgressComplete,
+							ScriptName: opts.ScriptName,
+							IsRepl:     true,
+							Output:     monty.Int(42),
+						},
+					}
+				},
+			}, nil
+		},
+	}
+
+	cm := New(WithMontyBackend(backend))
+	if !cm.IsRemote() {
+		t.Fatal("IsRemote() = false with WithMontyBackend")
+	}
+
+	var reqCount atomic.Int32
+	model := fakes.NewFunctionModel(func(_ context.Context, messages []ai.ModelMessage, _ ai.ModelRequestParams) (*ai.ModelResponse, error) {
+		if reqCount.Add(1) == 1 {
+			return &ai.ModelResponse{Parts: []ai.ResponsePart{
+				ai.ToolCallPart{ToolName: ToolName, Args: []byte(`{"code":"print('hi')\n40 + 2"}`), ToolCallID: "call-1"},
+			}}, nil
+		}
+		lastReq := messages[len(messages)-1].(ai.ModelRequest)
+		tr, ok := lastReq.Parts[0].(ai.ToolReturnPart)
+		if !ok {
+			t.Fatalf("expected ToolReturnPart, got %T", lastReq.Parts[0])
+		}
+		gotMap, ok := tr.Content.(map[string]any)
+		if !ok || gotMap["output"] != "hi\n" || gotMap["result"] != int64(42) {
+			t.Fatalf("tool return Content = %#v, want output+result 42", tr.Content)
+		}
+		return &ai.ModelResponse{Parts: []ai.ResponsePart{ai.TextPart{Content: "42"}}}, nil
+	})
+
+	agent := ai.NewAgent[struct{}, string](model)
+	res, err := agent.Run(context.Background(), "compute", struct{}{}, ai.WithRunCapabilities(cm))
+	if err != nil {
+		t.Fatalf("agent.Run: %v", err)
+	}
+	if res.Output != "42" {
+		t.Fatalf("Output = %q, want 42", res.Output)
+	}
+	if backend.replOpts.ScriptName != "run_code.py" || backend.replOpts.Limits == nil {
+		t.Fatalf("unexpected NewRepl opts: %+v", backend.replOpts)
+	}
+	if backend.lastCode != "print('hi')\n40 + 2" {
+		t.Fatalf("worker saw code %q", backend.lastCode)
+	}
+	if backend.replClosed.Load() < 2 {
+		t.Fatalf("expected initial and final ReplHandles to be closed, closed count = %d", backend.replClosed.Load())
+	}
+}
+
+func TestRunCodeRemoteFakeWorkerPythonErrorRetries(t *testing.T) {
+	var attempt atomic.Int32
+	var backend *fakeMontyBackend
+	backend = &fakeMontyBackend{
+		onNewRepl: func(opts monty.ReplOptions) (monty.ReplHandle, error) {
+			return &fakeReplHandle{
+				backend: backend,
+				onFeed: func(_ context.Context, _ string, _ monty.FeedStartOptions) monty.Step {
+					next := &fakeReplHandle{backend: backend}
+					if attempt.Add(1) == 1 {
+						return monty.Step{
+							Err:  &remote.PythonError{Type: "ZeroDivisionError", Message: "division by zero"},
+							Repl: next,
+						}
+					}
+					return monty.Step{
+						Progress: &fakeCompleteProgress{next: next},
+						Desc: monty.ProgressDesc{
+							Kind:       monty.ProgressComplete,
+							ScriptName: opts.ScriptName,
+							IsRepl:     true,
+							Output:     monty.Int(7),
+						},
+					}
+				},
+			}, nil
+		},
+	}
+
+	var reqCount atomic.Int32
+	model := fakes.NewFunctionModel(func(_ context.Context, messages []ai.ModelMessage, _ ai.ModelRequestParams) (*ai.ModelResponse, error) {
+		switch reqCount.Add(1) {
+		case 1:
+			return &ai.ModelResponse{Parts: []ai.ResponsePart{
+				ai.ToolCallPart{ToolName: ToolName, Args: []byte(`{"code":"1 / 0"}`), ToolCallID: "c1"},
+			}}, nil
+		case 2:
+			lastReq := messages[len(messages)-1].(ai.ModelRequest)
+			retry, ok := lastReq.Parts[0].(ai.RetryPromptPart)
+			if !ok {
+				t.Fatalf("expected RetryPromptPart after PythonError, got %T", lastReq.Parts[0])
+			}
+			if !strings.Contains(retry.Content, "ZeroDivisionError: division by zero") {
+				t.Fatalf("retry prompt = %q, want ZeroDivisionError", retry.Content)
+			}
+			return &ai.ModelResponse{Parts: []ai.ResponsePart{
+				ai.ToolCallPart{ToolName: ToolName, Args: []byte(`{"code":"3 + 4"}`), ToolCallID: "c2"},
+			}}, nil
+		default:
+			return &ai.ModelResponse{Parts: []ai.ResponsePart{ai.TextPart{Content: "7"}}}, nil
+		}
+	})
+
+	agent := ai.NewAgent[struct{}, string](model)
+	res, err := agent.Run(context.Background(), "compute", struct{}{}, ai.WithRunCapabilities(New(WithMontyBackend(backend))))
+	if err != nil {
+		t.Fatalf("agent.Run: %v", err)
+	}
+	if res.Output != "7" {
+		t.Fatalf("Output = %q, want 7", res.Output)
+	}
+	if backend.feedCalls.Load() != 2 {
+		t.Fatalf("worker FeedStart calls = %d, want 2", backend.feedCalls.Load())
+	}
+}
+
+func TestRunCodeRemoteWorkerFailureAbortsTurnWithoutFallback(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("net.Listen: %v", err)
+	}
+	closedAddr := ln.Addr().String()
+	_ = ln.Close()
+
+	cases := []struct {
+		name   string
+		opt    Option
+		wantIn string
+	}{
+		{
+			name: "session refused",
+			opt: WithMontyBackend(&fakeMontyBackend{
+				onNewRepl: func(monty.ReplOptions) (monty.ReplHandle, error) {
+					return nil, &remote.SessionRefusedError{Reason: "worker full"}
+				},
+			}),
+			wantIn: "worker full",
+		},
+		{
+			name: "connection lost during feed",
+			opt: WithMontyBackend(func() monty.Backend {
+				var b *fakeMontyBackend
+				b = &fakeMontyBackend{
+					onNewRepl: func(monty.ReplOptions) (monty.ReplHandle, error) {
+						return &fakeReplHandle{
+							backend: b,
+							onFeed: func(context.Context, string, monty.FeedStartOptions) monty.Step {
+								return monty.Step{Err: &remote.ConnectionLostError{Op: "receive", Err: io.EOF}}
+							},
+						}, nil
+					},
+				}
+				return b
+			}()),
+			wantIn: "connection lost",
+		},
+		{
+			name:   "unreachable gRPC listener",
+			opt:    WithRemote(RemoteConfig{Endpoint: closedAddr, Insecure: true}),
+			wantIn: "remote worker",
+		},
+		{
+			name:   "refuses token without TLS",
+			opt:    WithRemote(RemoteConfig{Endpoint: "127.0.0.1:50051", Token: "secret-token", Insecure: true}),
+			wantIn: "without TLS",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var reqCount atomic.Int32
+			model := fakes.NewFunctionModel(func(context.Context, []ai.ModelMessage, ai.ModelRequestParams) (*ai.ModelResponse, error) {
+				reqCount.Add(1)
+				return &ai.ModelResponse{Parts: []ai.ResponsePart{
+					ai.ToolCallPart{ToolName: ToolName, Args: []byte(`{"code":"1 + 1"}`), ToolCallID: "c1"},
+				}}, nil
+			})
+
+			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+			defer cancel()
+
+			agent := ai.NewAgent[struct{}, string](model)
+			_, err := agent.Run(ctx, "compute 1+1", struct{}{}, ai.WithRunCapabilities(New(tc.opt)))
+			if err == nil {
+				t.Fatal("agent.Run succeeded, want remote worker failure (no local fallback)")
+			}
+			if !strings.Contains(err.Error(), tc.wantIn) {
+				t.Fatalf("error = %q, want substring %q", err.Error(), tc.wantIn)
+			}
+			var retry *ai.RetryError
+			if errors.As(err, &retry) {
+				t.Fatalf("worker failure was wrapped as RetryError: %v", err)
+			}
+			if got := reqCount.Load(); got != 1 {
+				t.Fatalf("model requests = %d, want 1 (worker error must abort turn, not retry)", got)
+			}
+		})
+	}
+}
+
+func TestRemoteMontyMatchesInProcessToolDefinitionAndInstructions(t *testing.T) {
+	capture := func(cm *CodeMode) ai.ModelRequestParams {
+		var captured ai.ModelRequestParams
+		model := fakes.NewFunctionModel(func(_ context.Context, _ []ai.ModelMessage, params ai.ModelRequestParams) (*ai.ModelResponse, error) {
+			captured = params
+			return &ai.ModelResponse{Parts: []ai.ResponsePart{ai.TextPart{Content: "done"}}}, nil
+		})
+		agent := ai.NewAgent[struct{}, string](model)
+		if _, err := agent.Run(context.Background(), "hi", struct{}{}, ai.WithRunCapabilities(cm)); err != nil {
+			t.Fatalf("agent.Run: %v", err)
+		}
+		return captured
+	}
+
+	localParams := capture(New())
+	remoteParams := capture(New(WithRemote(RemoteConfig{Endpoint: "worker.example.com:443"})))
+
+	if !reflect.DeepEqual(localParams.Tools, remoteParams.Tools) {
+		t.Fatalf("remote tools differ from in-process Monty:\nlocal:  %#v\nremote: %#v", localParams.Tools, remoteParams.Tools)
+	}
+	if localParams.Instructions != remoteParams.Instructions {
+		t.Fatalf("remote instructions differ from in-process Monty:\nlocal:  %q\nremote: %q", localParams.Instructions, remoteParams.Instructions)
+	}
+}
+
+func TestRunCodeRemoteLiveWorker(t *testing.T) {
+	if os.Getenv("SPARKTEA_TEST_REMOTE_LIVE") != "1" {
+		t.Skip("set SPARKTEA_TEST_REMOTE_LIVE=1 to run against live MONTY_REMOTE_ENDPOINT")
+	}
+	cfg := RemoteConfigFromEnv("")
+	if cfg.Endpoint == "" {
+		t.Skip("MONTY_REMOTE_ENDPOINT not set")
+	}
+
+	var step atomic.Int32
+	var gotOutput string
+	var gotResult any
+	model := fakes.NewFunctionModel(func(_ context.Context, messages []ai.ModelMessage, _ ai.ModelRequestParams) (*ai.ModelResponse, error) {
+		switch step.Add(1) {
+		case 1:
+			return &ai.ModelResponse{Parts: []ai.ResponsePart{
+				ai.ToolCallPart{ToolName: ToolName, Args: []byte(`{"code":"1 / 0"}`), ToolCallID: "c1"},
+			}}, nil
+		case 2:
+			lastReq := messages[len(messages)-1].(ai.ModelRequest)
+			retry, ok := lastReq.Parts[0].(ai.RetryPromptPart)
+			if !ok {
+				t.Fatalf("expected RetryPromptPart after 1/0, got %T", lastReq.Parts[0])
+			}
+			if !strings.Contains(retry.Content, "ZeroDivisionError") {
+				t.Fatalf("retry prompt = %q, want ZeroDivisionError", retry.Content)
+			}
+			return &ai.ModelResponse{Parts: []ai.ResponsePart{
+				ai.ToolCallPart{ToolName: ToolName, Args: []byte(`{"code":"print('remote-ok')\nsum(i * i for i in range(1, 26))"}`), ToolCallID: "c2"},
+			}}, nil
+		default:
+			lastReq := messages[len(messages)-1].(ai.ModelRequest)
+			tr, ok := lastReq.Parts[0].(ai.ToolReturnPart)
+			if !ok {
+				t.Fatalf("expected ToolReturnPart, got %T", lastReq.Parts[0])
+			}
+			m, ok := tr.Content.(map[string]any)
+			if !ok {
+				t.Fatalf("tool return Content = %#v (%T), want map[string]any", tr.Content, tr.Content)
+			}
+			gotOutput, _ = m["output"].(string)
+			gotResult = m["result"]
+			return &ai.ModelResponse{Parts: []ai.ResponsePart{ai.TextPart{Content: fmt.Sprintf("%v", gotResult)}}}, nil
+		}
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	agent := ai.NewAgent[struct{}, string](model)
+	res, err := agent.Run(ctx, "compute", struct{}{}, ai.WithRunCapabilities(New(WithRemote(cfg))))
+	if err != nil {
+		t.Fatalf("agent.Run against remote worker: %v", err)
+	}
+	if gotOutput != "remote-ok\n" {
+		t.Fatalf("remote output = %q, want \"remote-ok\\n\"", gotOutput)
+	}
+	if gotResult != int64(5525) {
+		t.Fatalf("remote result = %#v (%T), want int64(5525)", gotResult, gotResult)
+	}
+	if res.Output != "5525" {
+		t.Fatalf("agent Output = %q, want \"5525\"", res.Output)
 	}
 }
