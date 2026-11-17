@@ -187,7 +187,7 @@ func (c *CodeMode) handleRunCode(ctx context.Context, rawArgs json.RawMessage) (
 
 // composeResult mirrors upstream Code Mode's result semantics.
 func composeResult(output string, value monty.Value) any {
-	isNone := value.Kind() == "none"
+	isNone := value.IsNone()
 	switch {
 	case output != "" && !isNone:
 		return map[string]any{"output": output, "result": flattenValue(value)}

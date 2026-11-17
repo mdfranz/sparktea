@@ -390,9 +390,11 @@ service name (default `sparktea`).
 
 Prompts, completions, tool inputs/results, and full request parameters are
 sent to Logfire by default so traces contain the context needed for debugging.
-Code Mode also attaches gomonty's `monty.run` execution span beneath the
-agent's `run_code` tool span, including interpreter timing and, by default,
-the bounded result and captured `print()` output.
+Code Mode also attaches gomonty's `monty.run` execution span (or `monty.feed`
+with `-monty-remote`, including `monty.worker.*` timing attributes and W3C
+`traceparent` propagation) beneath the agent's `run_code` tool span, including
+interpreter timing, `otelmonty` execution metrics, and, by default, the bounded
+result and captured `print()` output.
 
 With `-code-backend cpython`, the `run_code` span has a `python.run` child
 instead. Its attributes:
@@ -476,8 +478,10 @@ Sandboxing guarantees:
 - Built-in exceptions take zero or one string argument (`ValueError('msg')`;
   `ValueError(1)` or `ValueError('a', 'b')` fails with a misleadingly worded
   "Internal error in monty"), and custom exception types can't be defined.
-- Each run is capped at 5 seconds wall-clock, 64 MiB memory, and 100 stack
-  frames of recursion, so a runaway script can't stall the TUI.
+- Each run is capped at 5 seconds wall-clock, 64 MiB memory (a per-allocation
+  cap in-process, or a cumulative heap budget on remote workers built with
+  `monty-alloc`), and 100 stack frames of recursion, so a runaway script can't
+  stall the TUI.
 
 When `/code` is on, a short instruction is also added to the system prompt
 telling the model to avoid method decorators, custom exception subclasses, and
@@ -515,6 +519,9 @@ When unset, execution stays in-process.
   drops the connection, the turn fails cleanly rather than falling back to
   in-process execution. Python syntax/runtime errors still return retry prompts
   so the model can fix its code.
+- **Distributed tracing:** when `LOGFIRE_TOKEN` is set, outbound worker
+  requests carry a W3C `traceparent` header so the remote worker joins the
+  trace under `monty.feed`.
 
 ### Local CPython backend
 

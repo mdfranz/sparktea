@@ -21,8 +21,10 @@ import (
 	monty "github.com/mdfranz/gomonty"
 	"github.com/mdfranz/gomonty/otelmonty"
 	"github.com/mdfranz/gomonty/remote"
+	"go.opentelemetry.io/otel/attribute"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
+	"go.opentelemetry.io/otel/trace"
 )
 
 func recordedSpan(spans []sdktrace.ReadOnlySpan, name string) sdktrace.ReadOnlySpan {
@@ -34,13 +36,18 @@ func recordedSpan(spans []sdktrace.ReadOnlySpan, name string) sdktrace.ReadOnlyS
 	return nil
 }
 
-func spanHasAttribute(span sdktrace.ReadOnlySpan, key string) bool {
+func spanAttribute(span sdktrace.ReadOnlySpan, key string) (attribute.Value, bool) {
 	for _, attr := range span.Attributes() {
 		if string(attr.Key) == key {
-			return true
+			return attr.Value, true
 		}
 	}
-	return false
+	return attribute.Value{}, false
+}
+
+func spanHasAttribute(span sdktrace.ReadOnlySpan, key string) bool {
+	_, ok := spanAttribute(span, key)
+	return ok
 }
 
 // runRaw runs code through a fresh CodeMode with the given limits
@@ -676,6 +683,77 @@ func TestRunCodeRemoteFakeWorkerSuccess(t *testing.T) {
 	}
 	if backend.replClosed.Load() < 2 {
 		t.Fatalf("expected initial and final ReplHandles to be closed, closed count = %d", backend.replClosed.Load())
+	}
+}
+
+func TestRunCodeRemoteTelemetryJoinsParentTrace(t *testing.T) {
+	recorder := tracetest.NewSpanRecorder()
+	tp := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(recorder))
+	tracer := tp.Tracer("sparktea-test")
+
+	var feedSC trace.SpanContext
+	var backend *fakeMontyBackend
+	backend = &fakeMontyBackend{
+		onNewRepl: func(opts monty.ReplOptions) (monty.ReplHandle, error) {
+			return &fakeReplHandle{
+				backend: backend,
+				onFeed: func(ctx context.Context, _ string, _ monty.FeedStartOptions) monty.Step {
+					feedSC = trace.SpanContextFromContext(ctx)
+					if sink := monty.WorkerStatsSinkFromContext(ctx); sink != nil {
+						sink(monty.WorkerStats{
+							FeedExecution:    2 * time.Millisecond,
+							SessionExecution: 5 * time.Millisecond,
+							SessionID:        "remote-sess-1",
+						})
+					}
+					next := &fakeReplHandle{backend: backend}
+					return monty.Step{
+						Progress: &fakeCompleteProgress{next: next},
+						Desc: monty.ProgressDesc{
+							Kind:       monty.ProgressComplete,
+							ScriptName: opts.ScriptName,
+							IsRepl:     true,
+							Output:     monty.Int(42),
+						},
+					}
+				},
+			}, nil
+		},
+	}
+
+	c := New(WithMontyBackend(backend))
+	c.telemetry = otelmonty.Handler{Tracer: tracer}
+
+	ctx, parent := tracer.Start(context.Background(), "run_code tool")
+	args, err := json.Marshal(map[string]string{"code": "40 + 2"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.handleRunCode(ctx, args); err != nil {
+		t.Fatalf("handleRunCode: %v", err)
+	}
+	parent.End()
+
+	spans := recorder.Ended()
+	montyFeed := recordedSpan(spans, "monty.feed")
+	tool := recordedSpan(spans, "run_code tool")
+	if montyFeed == nil || tool == nil {
+		t.Fatalf("expected tool and monty.feed spans, got %d spans", len(spans))
+	}
+	if montyFeed.Parent().SpanID() != tool.SpanContext().SpanID() {
+		t.Errorf("monty.feed parent = %v, want tool span %v", montyFeed.Parent().SpanID(), tool.SpanContext().SpanID())
+	}
+	if !feedSC.IsValid() || feedSC.SpanID() != montyFeed.SpanContext().SpanID() {
+		t.Errorf("FeedStart saw SpanContext %v, want valid SpanID %v", feedSC, montyFeed.SpanContext().SpanID())
+	}
+	if v, ok := spanAttribute(montyFeed, "monty.worker.session_id"); !ok || v.AsString() != "remote-sess-1" {
+		t.Errorf("monty.worker.session_id = %v (found=%v), want remote-sess-1", v, ok)
+	}
+	if v, ok := spanAttribute(montyFeed, "monty.worker.feed_duration_ms"); !ok || v.AsFloat64() != 2 {
+		t.Errorf("monty.worker.feed_duration_ms = %v (found=%v), want 2", v, ok)
+	}
+	if v, ok := spanAttribute(montyFeed, "monty.worker.session_duration_ms"); !ok || v.AsFloat64() != 5 {
+		t.Errorf("monty.worker.session_duration_ms = %v (found=%v), want 5", v, ok)
 	}
 }
 
