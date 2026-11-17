@@ -1,9 +1,14 @@
 package main
 
 import (
+	"log/slog"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
+	ai "github.com/Kludex/pydantic-ai-go/ai"
 	"github.com/mdfranz/sparktea/codemode"
 )
 
@@ -79,5 +84,73 @@ func TestCodeBackendFlag(t *testing.T) {
 	}
 	if _, err := parseCLIFlags([]string{"-code-backend", "python"}); err == nil {
 		t.Error("-code-backend python succeeded, want an error")
+	}
+}
+
+func TestMontyRemoteFlagAndSecretHygiene(t *testing.T) {
+	t.Setenv(codemode.EnvMontyRemoteEndpoint, "")
+	t.Setenv(codemode.EnvMontyRemoteToken, "")
+	t.Setenv(codemode.EnvMontyRemoteInsecure, "")
+
+	opts, err := parseCLIFlags([]string{"-prompt", "hi", "-monty-remote", " 127.0.0.1:50051 "})
+	if err != nil {
+		t.Fatalf("parseCLIFlags(-monty-remote): %v", err)
+	}
+	if opts.montyRemote != "127.0.0.1:50051" {
+		t.Fatalf("montyRemote = %q, want 127.0.0.1:50051", opts.montyRemote)
+	}
+	if _, err := parseCLIFlags([]string{"-code", "-code-backend", "cpython", "-monty-remote", "127.0.0.1:50051"}); err == nil {
+		t.Fatal("-monty-remote with -code-backend cpython succeeded, want an error")
+	}
+
+	const secretToken = "monty-secret-token-should-never-persist"
+	t.Setenv(codemode.EnvMontyRemoteEndpoint, "worker.example.com:443")
+	t.Setenv(codemode.EnvMontyRemoteToken, secretToken)
+
+	montyCM := newCodeMode(codemode.BackendMonty, "")
+	if !montyCM.IsRemote() {
+		t.Fatal("newCodeMode(monty) did not pick up MONTY_REMOTE_ENDPOINT")
+	}
+	cpythonCM := newCodeMode(codemode.BackendCPython, "")
+	if cpythonCM.IsRemote() {
+		t.Fatal("newCodeMode(cpython) unexpectedly reported IsRemote() == true")
+	}
+
+	// Verify local logs and /save session files never contain the auth token or remote config.
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	logDir := filepath.Join(home, "logs")
+	now := time.Date(2026, time.November, 13, 12, 0, 0, 0, time.Local)
+	logger, err := newLocalLogger(logDir, func() time.Time { return now })
+	if err != nil {
+		t.Fatalf("newLocalLogger: %v", err)
+	}
+	logger.event(slog.LevelInfo, "turn_started", "mode", "one_shot", "code_mode", true, "code_backend", string(codemode.BackendMonty), "monty_remote", montyCM.IsRemote())
+	if err := logger.close(); err != nil {
+		t.Fatalf("close logger: %v", err)
+	}
+	logBytes, err := os.ReadFile(filepath.Join(logDir, "sparktea-2026-11-13.jsonl"))
+	if err != nil {
+		t.Fatalf("ReadFile(log): %v", err)
+	}
+	if strings.Contains(string(logBytes), secretToken) {
+		t.Fatalf("local log leaked %s: %s", codemode.EnvMontyRemoteToken, logBytes)
+	}
+
+	sessionPath, err := writeSessionFile("remote_check", sessionSnapshot{
+		Messages:    []ai.ModelMessage{ai.ModelRequest{Parts: []ai.RequestPart{ai.UserPromptPart{Content: "hi"}}}},
+		Option:      modelOption{label: "Test", provider: providerOpenRouter, modelID: "test/model"},
+		CodeEnabled: true,
+	})
+	if err != nil {
+		t.Fatalf("writeSessionFile: %v", err)
+	}
+	sessionBytes, err := os.ReadFile(sessionPath)
+	if err != nil {
+		t.Fatalf("ReadFile(session): %v", err)
+	}
+	if strings.Contains(string(sessionBytes), secretToken) || strings.Contains(string(sessionBytes), "worker.example.com:443") {
+		t.Fatalf("session file leaked remote config/token: %s", sessionBytes)
 	}
 }

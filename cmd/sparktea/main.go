@@ -110,6 +110,7 @@ func run() (exitCode int) {
 		return 0
 	}
 
+	defaultMontyRemote = opts.montyRemote
 	p := tea.NewProgram(newAppModel(options), tea.WithAltScreen(), tea.WithMouseCellMotion())
 	if _, err := p.Run(); err != nil {
 		logLocalError("interactive_failed", err)

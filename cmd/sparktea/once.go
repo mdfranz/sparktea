@@ -23,6 +23,7 @@ type cliOptions struct {
 	model       string
 	code        bool
 	codeBackend codemode.Backend
+	montyRemote string
 	search      bool
 	listModels  bool
 	script      string
@@ -37,15 +38,22 @@ func parseCLIFlags(args []string) (cliOptions, error) {
 	fs.StringVar(&opts.model, "model", "", "Model ID to use with -prompt or -script, e.g. claude-haiku-4-5-20251001, or provider:model_id (e.g. anthropic:claude-haiku-4-5-20251001) to disambiguate (see -list-models). Defaults to the first available model.")
 	fs.BoolVar(&opts.code, "code", false, "Enable Code Mode's run_code tool for this run.")
 	backend := fs.String("code-backend", string(codemode.BackendMonty), "What runs Code Mode's Python with -prompt or -script: \"monty\" (sandbox) or \"cpython\" (local CPython, not sandboxed).")
+	fs.StringVar(&opts.montyRemote, "monty-remote", "", "Remote Monty worker endpoint (host:port) for Code Mode (defaults to MONTY_REMOTE_ENDPOINT; auth token from MONTY_REMOTE_TOKEN).")
 	fs.BoolVar(&opts.search, "search", false, "Enable native web search for this run, if the model supports it.")
 	fs.BoolVar(&opts.listModels, "list-models", false, "List available models as provider:model_id (API key present) and exit.")
 	fs.StringVar(&opts.script, "script", "", "Run a sequence of prompts and commands from this file, non-interactively, sharing one growing conversation across turns (skips the TUI; mutually exclusive with -prompt). See README's \"Scripting multi-turn sequences\" for the file format.")
 	if err := fs.Parse(args); err != nil {
 		return cliOptions{}, err
 	}
+	opts.montyRemote = strings.TrimSpace(opts.montyRemote)
 	var err error
 	if opts.codeBackend, err = codemode.ParseBackend(*backend); err != nil {
 		err = fmt.Errorf("sparktea: -code-backend: %w", err)
+		fmt.Fprintln(os.Stderr, err)
+		return cliOptions{}, err
+	}
+	if opts.montyRemote != "" && opts.codeBackend == codemode.BackendCPython {
+		err := errors.New("sparktea: -monty-remote cannot be used with -code-backend cpython")
 		fmt.Fprintln(os.Stderr, err)
 		return cliOptions{}, err
 	}
@@ -125,14 +133,27 @@ func resolveModel(options []modelOption, spec string) (modelOption, error) {
 // exactly the detail Logfire captures by default (see LOGFIRE_SEND_CONTENT
 // in logfire.go), useful for exercising Code Mode's run_code tool and seeing
 // the code and result it produced directly.
+func newCodeMode(backend codemode.Backend, montyRemoteFlag string) *codemode.CodeMode {
+	opts := []codemode.Option{
+		codemode.WithBackend(backend),
+		codemode.WithTelemetryContent(logfireSendContent()),
+	}
+	if backend == codemode.BackendMonty {
+		if cfg := codemode.RemoteConfigFromEnv(montyRemoteFlag); cfg.Endpoint != "" {
+			opts = append(opts, codemode.WithRemote(cfg))
+		}
+	}
+	return codemode.New(opts...)
+}
+
 func runOnce(ctx context.Context, option modelOption, opts cliOptions) error {
 	agent := newAgentFor(option)
 
 	var runOpts []ai.RunOption
+	var cm *codemode.CodeMode
 	if opts.code {
-		runOpts = append(runOpts, ai.WithRunCapabilities(
-			codemode.New(codemode.WithTelemetryContent(logfireSendContent()), codemode.WithBackend(opts.codeBackend)),
-		))
+		cm = newCodeMode(opts.codeBackend, opts.montyRemote)
+		runOpts = append(runOpts, ai.WithRunCapabilities(cm))
 	}
 	searchEnabled := opts.search && option.supportsNativeWebSearch()
 	if opts.search && !searchEnabled {
@@ -143,7 +164,7 @@ func runOnce(ctx context.Context, option modelOption, opts cliOptions) error {
 
 	logArgs := []any{"web_search", searchEnabled, "code_mode", opts.code}
 	if opts.code {
-		logArgs = append(logArgs, "code_backend", string(opts.codeBackend))
+		logArgs = append(logArgs, "code_backend", string(opts.codeBackend), "monty_remote", cm.IsRemote())
 	}
 	_, err := runTurn(ctx, agent, option, opts.prompt, nil, runOpts, "one_shot", logArgs...)
 	return err

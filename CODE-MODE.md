@@ -17,7 +17,7 @@ backends, see
 
 Versions:
 - pydantic-ai-go v0.5.0
-- gomonty v0.0.18 (Monty v1.0.1)
+- gomonty v0.2.0 (Monty v1.6.0)
 - CPython: whatever `python3` is on `PATH` (3.11.2 in the benchmarks)
 
 ## Overview
@@ -29,8 +29,9 @@ sparktea turn (cmd/sparktea: runTurn / TUI stream loop)
      ├─ chat <model>                        model request (pydantic-ai-go)
      ├─ execute_tool run_code               tool span (pydantic-ai-go)
      │   └─ handler, by backend:
-     │       ├─ monty:   monty.New → runner.Run   → span monty.run   (gomonty/otelmonty)
-     │       └─ cpython: LocalWorkspaceBackend.Run → span python.run (sparktea)
+     │       ├─ monty (in-process): monty.New → runner.Run → span monty.run (gomonty/otelmonty)
+     │       ├─ monty (remote):     remote.DialGRPC → monty.NewRepl → repl.FeedRun → span monty.feed (gomonty/otelmonty)
+     │       └─ cpython:            LocalWorkspaceBackend.Run → span python.run (sparktea)
      └─ chat <model>                        next request, with the tool result or retry prompt
 ```
 
@@ -138,12 +139,14 @@ sparktea adds:
   - `sparktea.provider` and `sparktea.model`;
   - `sparktea.code_mode`;
   - `sparktea.code_backend`, when code mode is on;
+  - `sparktea.monty_remote`, when code mode is on (`true` if `-monty-remote` or `MONTY_REMOTE_ENDPOINT` is set);
   - `sparktea.web_search`.
 
   It also carries `logfire.tags`: `monty` or `cpython`, plus `web_search`
   when search is on.
-- **An interpreter span** under `execute_tool run_code`: `monty.run` or
-  `python.run`.
+- **An interpreter span** under `execute_tool run_code`: `monty.run`
+  (in-process), `monty.feed` (remote), or `python.run`, alongside `otelmonty`'s
+  execution metrics (`monty.executions`, `monty.execution.*`).
 
 `LOGFIRE_SEND_CONTENT=0` removes script output from the interpreter spans.
 The pydantic-ai-go spans follow pydantic-ai-go's own content settings.
@@ -158,18 +161,21 @@ Code: `codemode/codemode.go` and `codemode/flatten.go`.
 2. `runner.Run(ctx, monty.RunOptions{...})` executes it in-process, with no
    subprocess:
    - `Print: monty.WriterPrintCallback(&stdout)` captures `print()` output;
-   - `Limits`: 5 s wall clock, 64 MiB memory, 100 frames of recursion, 10
-     suspensions;
+   - `Limits`: 5 s wall clock, 64 MiB memory (a per-allocation size cap
+     in-process; cumulative heap budget on remote workers with `monty-alloc`),
+     100 frames of recursion, 10 suspensions;
    - `Telemetry` and `TelemetryOptions` connect gomonty's OpenTelemetry
-     bridge (`otelmonty`), which emits `monty.run`.
+     bridge (`otelmonty`), which emits `monty.run` and execution metrics.
 
    A runtime error or a limit violation becomes `ai.Retryf`, with Monty's own
    message, for example `NotImplementedError: ...` or `LookupError: unknown
    encoding: latin-1`.
 3. **The result:**
    - The script's last expression comes back as a `monty.Value`.
-   - `flattenValue` converts it to plain Go and JSON types. gomonty's own
-     JSON form wraps every value as `{"kind": ..., "value": ...}`.
+   - `flattenValue` switches on exported `monty.ValueKind*` constants to convert
+     values to plain Go and JSON types while preserving `[[key, value], ...]`
+     pairs for non-string dict keys. gomonty's own JSON form wraps every value
+     as `{"kind": ..., "value": ...}`.
    - Kinds with no natural JSON form, such as dates or class instances, fall
      back to Monty's `repr`.
 
@@ -183,16 +189,15 @@ Code: `codemode/codemode.go` and `codemode/flatten.go`.
 | neither | `{}` |
 
 **What the model is told:**
-- **Tool description:** about 2,200 characters, listing what Monty lacks:
-  - missing modules (`statistics`, `enum`, `hashlib`, `heapq` and others);
+- **Tool description:** lists what Monty lacks:
+  - missing modules (`statistics`, `enum`, `heapq` and others);
   - missing builtins;
-  - missing names in present modules, such as `dataclasses.field` and
-    `functools.lru_cache`;
-  - unsupported syntax: inheritance, decorators on methods, generators,
-    `match`;
+  - missing names in present modules, such as `dataclasses.fields` and
+    `functools.cmp_to_key`;
+  - unsupported syntax: inheritance, decorators on methods, generators;
   - the exception-argument rule;
   - the 100-frame recursion limit.
-- **System instruction:** about 320 characters, added through
+- **System instruction:** added through
   `AddInstructions`. It names the features models most often try anyway.
 
 Every model request in a code-mode turn carries both, so they account for
@@ -204,6 +209,31 @@ most of Monty's extra input tokens in the benchmark.
 - Calls are fast: a typical `monty.run` takes under 1 ms.
 - The language and standard library are narrower than CPython's, so models
   spend retries working around missing features.
+
+### Remote Monty worker
+
+Code: `codemode/remote.go`.
+
+When `-monty-remote <host:port>` or `MONTY_REMOTE_ENDPOINT` is configured with
+`BackendMonty` (in the TUI, `-prompt`, or `-script`), `handleRunCode` executes
+each call on the remote worker via `remote.DialGRPC` and a fresh
+`monty.NewRepl` + `repl.FeedRun` session rather than the in-process runner:
+
+- **TLS & token hygiene:** `remote.DialGRPC` uses TLS 1.2+ by default and reads
+  `MONTY_REMOTE_TOKEN` from the environment. The token is never logged or
+  stored in `/save` session files. `MONTY_REMOTE_INSECURE=1` permits plaintext
+  gRPC for local test workers and rejects any non-empty token.
+- **Error separation:** `PythonError` and `TypingError` responses from the
+  script become `ai.Retryf` prompts like local errors. Dial, auth,
+  session-refusal (`SessionRefusedError`), and dropped-stream
+  (`ConnectionLostError`) failures return plain errors so the turn fails
+  immediately without retrying or falling back to in-process execution.
+- **Identical model contract:** tool schema, description, and instructions do
+  not change.
+- **Telemetry & trace propagation:** `repl.FeedRun` emits a `monty.feed` span,
+  propagates W3C `traceparent` from `ctx` to the remote worker, and records
+  `monty.worker.feed_duration_ms`, `monty.worker.session_duration_ms`, and
+  `monty.worker.session_id` when the worker reports them.
 
 ## CPython backend
 
@@ -332,10 +362,10 @@ status keeps only the exception type.
 | Runs in | the sparktea process (gomonty) | a `python3 -I` subprocess, through `ai.LocalWorkspaceBackend` |
 | Isolation | interpreter-level sandbox | none beyond a scratch directory and filtered environment |
 | Language and standard library | Monty's subset | full CPython |
-| Limits | 5 s, 64 MiB heap, 100-frame recursion | 5 s, 512 MiB address space, 1000-frame recursion |
+| Limits | 5 s, 64 MiB per-alloc in-process (heap on remote with `monty-alloc`), 100-frame recursion | 5 s, 512 MiB address space, 1000-frame recursion |
 | Typical call (median) | 0.4 ms | 51 ms (0.2 ms of it running the script) |
 | Tool description | ~2,200 chars, plus a ~320-char instruction | ~570 chars, no instruction |
-| Interpreter span | `monty.run` (otelmonty) | `python.run` (sparktea) |
+| Interpreter span | `monty.run` / `monty.feed` (otelmonty) | `python.run` (sparktea) |
 | Errors back to the model | `ai.Retryf`, Monty's message | `ai.Retryf`, exception line first, traceback limited to the script |
 
 The call timings come from 273 `monty.run` spans and 238 `python.run` spans
@@ -354,7 +384,7 @@ matched configurations and three upstream or alternative configurations:
   sparktea's tool description and Monty instruction. This aligns the prompt
   and most limits, while leaving the harness behavior intact: its `run_code`
   accepts `restart` and keeps REPL state between calls. It also uses Monty
-  1.1.0, while sparktea's gomonty embeds Monty 1.0.1. It is therefore a close
+  1.1.0, while sparktea's gomonty embeds Monty 1.6.0. It is therefore a close
   comparison, not the same implementation.
 - **`cpython-sparktea`** uses a custom stateless `run_code` tool and reuses
   [`python_runner.py`](codemode/python_runner.py), with the same description,

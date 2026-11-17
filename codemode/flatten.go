@@ -12,42 +12,50 @@ import (
 // []monty.Value), not native Go types — so a naive json.Marshal(value.Raw())
 // re-triggers that same envelope on every element. This recurses instead.
 //
-// gomonty's ValueKind constants (valueKindNone, valueKindList, ...) are
-// unexported, so the switch below matches on the kind's underlying string
-// form directly (Kind() returns a ValueKind, but it's just a defined string
-// type, so it compares fine against an untyped string literal).
+// We keep flattenValue alongside gomonty's Value.Native() because flattenValue
+// preserves non-string-keyed dicts as [[key, value], ...] pairs (rather than
+// stringifying keys into a map) and passes v.Raw() through for
+// ValueKindEllipsis and ValueKindPath.
 func flattenValue(v monty.Value) any {
 	switch v.Kind() {
-	case "none", "ellipsis", "bool", "int", "big_int", "float", "string", "bytes", "path":
+	case monty.ValueKindNone,
+		monty.ValueKindEllipsis,
+		monty.ValueKindBool,
+		monty.ValueKindInt,
+		monty.ValueKindBigInt,
+		monty.ValueKindFloat,
+		monty.ValueKindString,
+		monty.ValueKindBytes,
+		monty.ValueKindPath:
 		// Already a plain Go (or JSON-marshalable) type for these kinds.
 		return v.Raw()
-	case "list":
+	case monty.ValueKindList:
 		items, ok := v.Raw().([]monty.Value)
 		if !ok {
 			return v.String()
 		}
 		return flattenItems(items)
-	case "tuple":
+	case monty.ValueKindTuple:
 		items, ok := v.Raw().(monty.Tuple)
 		if !ok {
 			return v.String()
 		}
 		return flattenItems(items)
-	case "set":
+	case monty.ValueKindSet:
 		items, ok := v.Raw().(monty.Set)
 		if !ok {
 			return v.String()
 		}
 		return flattenItems(items)
-	case "frozen_set":
+	case monty.ValueKindFrozenSet:
 		items, ok := v.Raw().(monty.FrozenSet)
 		if !ok {
 			return v.String()
 		}
 		return flattenItems(items)
-	case "dict":
+	case monty.ValueKindDict:
 		return flattenDict(v)
-	case "named_tuple":
+	case monty.ValueKindNamedTuple:
 		return flattenNamedTuple(v)
 	default:
 		// Everything else — class_instance (formerly dataclass), function,
@@ -79,7 +87,7 @@ func flattenDict(v monty.Value) any {
 		return v.String()
 	}
 	for _, pair := range pairs {
-		if pair.Key.Kind() != "string" {
+		if pair.Key.Kind() != monty.ValueKindString {
 			out := make([][2]any, len(pairs))
 			for i, p := range pairs {
 				out[i] = [2]any{flattenValue(p.Key), flattenValue(p.Value)}

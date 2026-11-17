@@ -213,6 +213,10 @@ type chatModel struct {
 	ready         bool
 }
 
+// defaultMontyRemote holds the CLI -monty-remote flag for interactive TUI
+// sessions when set at startup.
+var defaultMontyRemote string
+
 // newAgentFor builds the agent for a model option. Called both when a chat
 // starts and when /model switches models mid-conversation.
 func newAgentFor(option modelOption) *ai.Agent[struct{}, string] {
@@ -276,7 +280,7 @@ func newChatModel(option modelOption, width, height int) (*chatModel, tea.Cmd) {
 		activityViewport:   viewport.New(activityMinPanelWidth, max(height-5, 1)),
 		activityEnabled:    true,
 		spinner:            sp,
-		codeModeCapability: codemode.New(codemode.WithTelemetryContent(logfireSendContent())),
+		codeModeCapability: newCodeMode(codemode.BackendMonty, defaultMontyRemote),
 	}
 	cm.setSize(width, height)
 	return cm, textarea.Blink
@@ -1150,6 +1154,7 @@ func (m *chatModel) startStreamWithWebFetch(prompt string, webFetch bool) tea.Cm
 	option := m.option
 	searchEnabled := m.searchEnabled && option.supportsNativeWebSearch()
 	codeEnabled := m.codeEnabled
+	montyRemote := codeEnabled && m.codeModeCapability != nil && m.codeModeCapability.IsRemote()
 
 	runOpts := []ai.RunOption{ai.WithMessageHistory(history)}
 	if searchEnabled {
@@ -1174,7 +1179,7 @@ func (m *chatModel) startStreamWithWebFetch(prompt string, webFetch bool) tea.Cm
 	}
 
 	go func() {
-		logLocal(slog.LevelInfo, "turn_started", "mode", "interactive", "provider", string(option.provider), "model", option.modelID, "web_search", searchEnabled, "web_fetch", webFetch, "code_mode", codeEnabled)
+		logLocal(slog.LevelInfo, "turn_started", "mode", "interactive", "provider", string(option.provider), "model", option.modelID, "web_search", searchEnabled, "web_fetch", webFetch, "code_mode", codeEnabled, "monty_remote", montyRemote)
 		runTracer, runCtx := startRunTracer(ctx, "sparktea turn")
 		watchdog := newStallWatchdog(runCtx)
 		defer watchdog.stop()

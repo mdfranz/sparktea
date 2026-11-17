@@ -148,6 +148,10 @@ sparktea -model anthropic:claude-haiku-4-5-20251001 -code \
 - `-code-backend cpython` runs Code Mode's Python in local CPython instead of
   Monty (see "Local CPython backend" under Code Mode). CLI only; the TUI
   always uses Monty.
+- `-monty-remote <host:port>` offloads Monty `run_code` execution to a remote
+  Monty worker instead of the in-process interpreter (defaults to
+  `MONTY_REMOTE_ENDPOINT`; see "Remote Monty worker" under Code Mode). Works in
+  the TUI, `-prompt`, and `-script`.
 - The model's answer streams to stdout; thinking, tool calls (including the
   exact `run_code` argument and result), and a final usage line go to
   stderr — redirect it away (`2>/dev/null`) for just the answer, or capture
@@ -168,9 +172,9 @@ one per provider, so it's the slowest and priciest check here.
 
 [`./monty_codegen.sh`](monty_codegen.sh) measures how well a model's generated Python runs on
 Monty. It sends 23 small tasks with known answers through `-code -prompt`.
-Most tasks are worded to tempt the model toward something Monty doesn't
-support (inheritance, generators, `match`, `enum`, `hashlib`, deep
-recursion; see Monty's
+Most tasks probe Monty compatibility, including inheritance, generators,
+`match`, `enum`, `hashlib`, and deep recursion. Monty v1.6.0 supports `match`
+and `hashlib`; see Monty's
 [limitations docs](https://github.com/pydantic/monty/tree/main/docs/limitations)).
 For each case it reports pass/fail, `run_code` calls, failed calls by error
 type, and the answer. Flags: `-m provider:model_id`, `-b cpython` to run the
@@ -386,9 +390,11 @@ service name (default `sparktea`).
 
 Prompts, completions, tool inputs/results, and full request parameters are
 sent to Logfire by default so traces contain the context needed for debugging.
-Code Mode also attaches gomonty's `monty.run` execution span beneath the
-agent's `run_code` tool span, including interpreter timing and, by default,
-the bounded result and captured `print()` output.
+Code Mode also attaches gomonty's `monty.run` execution span (or `monty.feed`
+with `-monty-remote`, including `monty.worker.*` timing attributes and W3C
+`traceparent` propagation) beneath the agent's `run_code` tool span, including
+interpreter timing, `otelmonty` execution metrics, and, by default, the bounded
+result and captured `print()` output.
 
 With `-code-backend cpython`, the `run_code` span has a `python.run` child
 instead. Its attributes:
@@ -446,6 +452,8 @@ interpreter written in Rust, via its Go bindings,
 [**gomonty**](https://github.com/mdfranz/gomonty) — no Docker, no
 subprocess, a few milliseconds to start.
 
+The bundled runtime is gomonty v0.2.0, based on Monty v1.6.0.
+
 The top line shows the linked gomonty version and its embedded Monty release,
 alongside the selected model. Development pseudo-versions use a short commit
 hash so the header stays compact.
@@ -457,30 +465,32 @@ Sandboxing guarantees:
 - Only part of the stdlib exists, each module covering a slice of CPython's
   surface: `sys`, `typing`, `math`, `json`, `re`, `unicodedata`, `datetime`,
   `pathlib`, `os`, `collections`, `itertools`, `functools`, `dataclasses`,
-  `asyncio`, `base64`, `binascii`, `copy`, `random`, and `time`. No
-  third-party imports. Notably **not** available: `statistics`, `enum`,
-  `hashlib`, `heapq`, `bisect`, `decimal`, `textwrap`, and anything
+  `asyncio`, `base64`, `binascii`, `copy`, `random`, `time`, `hashlib`,
+  `bisect`, and `decimal`. No third-party imports. Notably **not** available:
+  `statistics`, `enum`, `heapq`, `textwrap`, and anything
   network/process/thread-related (`urllib`, `socket`, `subprocess`,
   `threading`). Missing builtins include `dir`, `globals`, `vars`, `compile`,
-  `callable`, `complex`, and `input`; missing names in present modules include
-  `functools.lru_cache`, `dataclasses.field`/`fields`/`replace`, and
+  `callable`, and `input`; missing names in present modules include
+  `functools.cmp_to_key`, `dataclasses.fields`/`replace`, and
   `asyncio.create_task`.
-- Also unsupported: class inheritance, generator functions/`yield`, `match`,
+- Also unsupported: class inheritance, generator functions/`yield`,
   `del`, `async with`/`async for`, and PEP 695 type aliases.
 - Built-in exceptions take zero or one string argument (`ValueError('msg')`;
   `ValueError(1)` or `ValueError('a', 'b')` fails with a misleadingly worded
   "Internal error in monty"), and custom exception types can't be defined.
-- Each run is capped at 5 seconds wall-clock, 64 MiB memory, and 100 stack
-  frames of recursion, so a runaway script can't stall the TUI.
+- Each run is capped at 5 seconds wall-clock, 64 MiB memory (a per-allocation
+  cap in-process, or a cumulative heap budget on remote workers built with
+  `monty-alloc`), and 100 stack frames of recursion, so a runaway script can't
+  stall the TUI.
 
 When `/code` is on, a short instruction is also added to the system prompt
-telling the model to avoid decorators, `match`, custom exception subclasses, and
-modules like `statistics` and `hashlib` (see
+telling the model to avoid method decorators, custom exception subclasses, and
+modules like `statistics` and `enum` (see
 `codemode/monty_instructions.txt`; the `run_code` descriptions are in
 `codemode/run_code_description.txt` and `codemode/run_code_python_description.txt`,
 shared with the Python runner). It is off with code mode, so plain chats are unaffected.
 
-`codemode/codemode_test.go` covers the binding and a Monty v1.0.1 acceptance
+`codemode/codemode_test.go` covers the binding and a Monty v1.6.0 acceptance
 matrix for useful language and standard-library features. The matrix guards
 the embedded runtime against drifting behind the Go API during later upgrades.
 
@@ -490,6 +500,28 @@ resource-limit violation comes back to the model as a bounded retry prompt
 (`*ai.RetryError`, capped at 20 cumulative failures for the run) rather than
 a hard failure, so it can see what went wrong and retry with corrected
 code — without a broken-code loop running forever.
+
+### Remote Monty worker
+
+Pass `-monty-remote <host:port>` or set `MONTY_REMOTE_ENDPOINT` to execute
+Monty `run_code` calls on a remote worker over gRPC
+(`github.com/mdfranz/gomonty/remote`) instead of the in-process interpreter.
+When unset, execution stays in-process.
+
+- **Auth & TLS:** TLS 1.2+ is enabled by default. Set `MONTY_REMOTE_TOKEN` for
+  bearer authentication; the token is read only from the environment and is
+  never logged or saved to `/save` session files. Setting
+  `MONTY_REMOTE_INSECURE=1` disables TLS for local non-TLS test workers and
+  refuses to send a token.
+- **Same model surface:** uses the same `run_code` schema, tool description,
+  and instructions as in-process Monty.
+- **Fail-closed:** if the remote worker is unreachable, refuses the session, or
+  drops the connection, the turn fails cleanly rather than falling back to
+  in-process execution. Python syntax/runtime errors still return retry prompts
+  so the model can fix its code.
+- **Distributed tracing:** when `LOGFIRE_TOKEN` is set, outbound worker
+  requests carry a W3C `traceparent` header so the remote worker joins the
+  trace under `monty.feed`.
 
 ### Local CPython backend
 
